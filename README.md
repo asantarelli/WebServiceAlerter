@@ -80,8 +80,10 @@ Dos archivos, separados por **dueño** y no por máquina:
 | `appsettings.json` | Junto al ejecutable | Quien distribuye | **Se sobrescribe** |
 | `usersettings.json` | `%ProgramData%\WebServiceAlerter\` | El cliente | **Nunca se toca** |
 
-`usersettings.json` se relee **en caliente**: el cliente es un usuario común y no puede reiniciar
-un servicio de Windows, así que sus cambios tienen que aplicarse solos.
+`usersettings.json` se relee en caliente, porque el cliente es un usuario común y no puede
+reiniciar un servicio de Windows. **En la v0.1 esto anda para los destinatarios pero todavía no
+para los endpoints**: el loop resuelve la lista una sola vez al arrancar, así que agregar o
+cambiar una URL requiere reiniciar. Está pendiente y hay que cerrarlo antes del Viewer.
 
 Los endpoints son un diccionario y no una lista, a propósito: `IConfiguration` combina listas por
 índice (y pisaría la entrada equivocada) pero combina objetos por clave. Así, esto en
