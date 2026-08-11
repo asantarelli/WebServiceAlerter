@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WebServiceAlerter/WebServiceAlerter.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/IconGenerator/IconGenerator.csproj" />
+  </Folder>
+</Solution>

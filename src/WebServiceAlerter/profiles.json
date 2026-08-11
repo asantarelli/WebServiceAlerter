@@ -1,0 +1,41 @@
+{
+  // ---------------------------------------------------------------------------------------
+  // Perfiles de servicio: cómo hablarle a cada webservice para preguntarle si está vivo.
+  //
+  // ESTE ES EL ARCHIVO PARA COLABORAR. Agregar soporte para otro servicio (un banco, una
+  // pasarela de pago, otro organismo) es agregar una entrada acá — no hace falta escribir C#
+  // ni recompilar nada. Si tenés un servicio con método "dummy", mandá un pull request.
+  //
+  // Campos:
+  //   SoapAction   valor del header SOAPAction
+  //   Envelope     el sobre SOAP completo que se envía por POST
+  //   ContentType  normalmente "text/xml; charset=utf-8" (SOAP 1.2 usa application/soap+xml)
+  //   StatusNodes  nombres locales de los nodos de la respuesta que informan salud
+  //   OkValue      el valor que esos nodos devuelven cuando todo está bien
+  //
+  // Todos los StatusNodes deben valer OkValue para que el servicio cuente como disponible.
+  // Ahí está la gracia: detecta "el endpoint contesta pero su base de datos está caída",
+  // que un GET común informa como perfectamente sano.
+  // ---------------------------------------------------------------------------------------
+
+  "Profiles": {
+
+    "arca-wsfev1": {
+      "Description": "ARCA/AFIP WSFEv1 — método FEDummy, sin autenticación. Verificar el namespace contra la documentación vigente antes de usar en producción.",
+      "SoapAction": "http://ar.gov.afip.dif.FEV1/FEDummy",
+      "ContentType": "text/xml; charset=utf-8",
+      "Envelope": "<?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:ar=\"http://ar.gov.afip.dif.FEV1/\"><soap:Body><ar:FEDummy /></soap:Body></soap:Envelope>",
+      "StatusNodes": [ "AppServer", "DbServer", "AuthServer" ],
+      "OkValue": "OK"
+    },
+
+    "ejemplo-generico": {
+      "Description": "Plantilla para copiar y adaptar a otro servicio SOAP con método dummy.",
+      "SoapAction": "http://ejemplo/NombreDelMetodoDummy",
+      "ContentType": "text/xml; charset=utf-8",
+      "Envelope": "<?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\"><soap:Body><Dummy xmlns=\"http://ejemplo/\" /></soap:Body></soap:Envelope>",
+      "StatusNodes": [ "AppServer", "DbServer" ],
+      "OkValue": "OK"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+# ---------------------------------------------------------------------------
+# NUNCA versionar: credenciales y datos de instalaciones reales.
+# Este repo es público. Todo lo que tenga que ver con la casilla de envío va acá.
+# ---------------------------------------------------------------------------
+appsettings.Local.json
+appsettings.*.Local.json
+usersettings.json
+*.db
+*.db-shm
+*.db-wal
+status.json
+secrets/
+
+# Build
+bin/
+obj/
+publish/
+artifacts/
+*.user
+*.suo
+.vs/
+
+# Logs
+logs/
+*.log
