@@ -19,7 +19,11 @@ param(
     [string] $Output,
     [string] $Runtime = 'win-x64',
     [ValidateSet('Release', 'Debug')]
-    [string] $Configuration = 'Release'
+    [string] $Configuration = 'Release',
+
+    # Sólo para probar el servicio en el equipo propio: incluye appsettings.Local.json en el
+    # paquete. NUNCA usar para generar algo que se le entrega a un cliente.
+    [switch] $IncludeLocalSettings
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,8 +58,16 @@ if ($LASTEXITCODE -ne 0) {
 # Nunca debe viajar dentro de un paquete que se distribuye.
 $local = Join-Path $Output 'appsettings.Local.json'
 if (Test-Path $local) {
-    Remove-Item $local -Force
-    Write-Host "Quitado appsettings.Local.json del paquete (es local, no se distribuye)." -ForegroundColor Yellow
+    if ($IncludeLocalSettings) {
+        Write-Host ""
+        Write-Host "  ATENCIÓN: el paquete INCLUYE appsettings.Local.json con tus credenciales." -ForegroundColor Red
+        Write-Host "  Sirve para probar el servicio acá. No se lo entregues a nadie." -ForegroundColor Red
+        Write-Host ""
+    }
+    else {
+        Remove-Item $local -Force
+        Write-Host "Quitado appsettings.Local.json del paquete (es local, no se distribuye)." -ForegroundColor Yellow
+    }
 }
 
 $size = [math]::Round((Get-ChildItem $Output -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
