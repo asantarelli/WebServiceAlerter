@@ -260,6 +260,12 @@ inequívocamente. Esa distinción va en el mail, en la UI y en `status.json`.
 
 `OK` → `DEGRADADO` (Slow) → `CAÍDO` → recuperación → `OK`, más:
 
+- `INTERMITENTE` — **amarillo, igual que el degradado por latencia.** Hubo fallos aislados en los
+  últimos N minutos que nunca llegaron al umbral de confirmación, así que no son un incidente,
+  pero tampoco son "todo bien". Sin este estado, un servicio que falla una de cada cinco veces se
+  ve verde: el usuario no puede facturar y la pantalla le dice que está todo perfecto. Es
+  exactamente el escenario observado el 2026-08-12, cuando ARCA fallaba y el monitor no marcaba
+  incidente.
 - `SIN CONEXIÓN` — el canario está caído. **Estado puramente visual**: se muestra en gris para que
   la pantalla no exhiba un verde viejo, pero no genera alerta, no abre incidente y no descuenta
   uptime. Es un problema local, el usuario ya lo sabe, y el programa no tiene nada que aportar.
@@ -396,8 +402,14 @@ Restricciones que lo condicionan todo:
    la causa en texto plano: *"ARCA — Facturación: CAÍDO desde las 10:32 (hace 45 min) — el
    servidor de base de datos de ARCA no responde"*.
 2. **Ícono en la bandeja** que cambia de color, con notificación toast al cambiar de estado. Es
-   lo que hace que el usuario se entere sin tener la ventana abierta.
+   lo que hace que el usuario se entere sin tener la ventana abierta. Los íconos **ya están
+   generados** (`assets/tray-*.ico`, ver `tools/IconGenerator`):
+   - **verde** — todo OK
+   - **amarillo** — latencia alta **o fallas intermitentes** (ver §5.2)
+   - **rojo** — caído
+   - **gris** — sin conexión
 3. **Gráfico de latencia** (últimas 24 h / 7 d), con bandas rojas sobre los períodos de caída.
+   Mismo espíritu que el Viewer de ResourceAlerter, que es la referencia visual acordada.
 4. **Historial de incidentes** — tabla con inicio, duración, causa; y % de uptime por día/semana.
    Esto es lo que el cliente le muestra a su contador cuando pregunta por qué no facturó.
 5. **Configuración** — solo lo que es del cliente: **URLs a monitorear** y **lista de mails
