@@ -41,8 +41,29 @@ $viewerOutput = Join-Path $Output 'Viewer'
 
 Write-Host "Publicando $Configuration / $Runtime -> $Output" -ForegroundColor Cyan
 
+# Borrar la carpeta anterior falla seguido con "acceso denegado" sobre alguna DLL nativa: el
+# antivirus las escanea apenas se escriben y las retiene unos segundos. No es motivo para abortar
+# una publicación, así que se reintenta y, si igual no se puede, se sigue: dotnet publish
+# sobrescribe lo que haya.
 if (Test-Path $Output) {
-    Remove-Item $Output -Recurse -Force
+    $borrado = $false
+
+    for ($intento = 1; $intento -le 4 -and -not $borrado; $intento++) {
+        try {
+            Remove-Item $Output -Recurse -Force -ErrorAction Stop
+            $borrado = $true
+        }
+        catch {
+            if ($intento -lt 4) {
+                Write-Host "  carpeta anterior en uso, reintento $intento de 3..." -ForegroundColor DarkGray
+                Start-Sleep -Seconds 2
+            }
+        }
+    }
+
+    if (-not $borrado) {
+        Write-Host "  No pude limpiar la carpeta anterior; se sobrescribe encima." -ForegroundColor Yellow
+    }
 }
 
 dotnet publish $project `
