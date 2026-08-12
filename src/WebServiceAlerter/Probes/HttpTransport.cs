@@ -20,29 +20,52 @@ public sealed class HttpTransport : IDisposable
     private readonly HttpClient _client;
 
     /// <summary>
-    /// Server certificates observed during the handshake, keyed by the request that triggered
-    /// them. The validation callback runs on a different async context than the caller, so an
-    /// AsyncLocal would not flow the value back — the request message is the one thing both
-    /// sides reliably share.
+    /// Expiry date of the certificate last seen for each host. Keyed by host rather than by
+    /// request because that is what a certificate actually belongs to, and because the TLS
+    /// validation callback runs on a different async context than the caller — an AsyncLocal set
+    /// inside it would never flow back out.
     /// </summary>
-    private readonly ConcurrentDictionary<HttpRequestMessage, DateTime> _certificateExpiry = new();
+    private readonly ConcurrentDictionary<string, DateTime> _certificateExpiry = new(StringComparer.OrdinalIgnoreCase);
 
     public HttpTransport(IOptions<HttpOptions> options)
     {
         _options = options.Value;
 
-        var handler = new HttpClientHandler
+        var handler = new SocketsHttpHandler
         {
             AllowAutoRedirect = true,
             AutomaticDecompression = DecompressionMethods.All,
-            ServerCertificateCustomValidationCallback = (request, certificate, _, errors) =>
-            {
-                if (certificate is not null)
-                {
-                    _certificateExpiry[request] = certificate.NotAfter;
-                }
 
-                return errors == SslPolicyErrors.None || _options.IgnoreCertificateErrors;
+            // Without this, connections are pooled forever and DNS is resolved once, at the very
+            // first request. A service that runs for months would keep talking to whatever IP it
+            // resolved on the day it started — so if the monitored service moves (or its DNS is
+            // repointed) we would keep reporting on a stale address, which for a tool whose only
+            // job is to be right about availability is a silent, permanent lie.
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2),
+
+            SslOptions = new SslClientAuthenticationOptions
+            {
+                RemoteCertificateValidationCallback = (sender, certificate, _, errors) =>
+                {
+                    // Which object arrives as `sender` is an implementation detail that has
+                    // changed between runtimes, so take the host from whichever one shows up.
+                    var host = sender switch
+                    {
+                        HttpRequestMessage request => request.RequestUri?.Host,
+                        SslStream stream => stream.TargetHostName,
+                        _ => null,
+                    };
+
+                    // This callback hands over the base X509Certificate; the runtime always
+                    // supplies an X509Certificate2 in practice, and if that ever stops being true
+                    // we simply skip the expiry reading rather than guess at a date.
+                    if (certificate is X509Certificate2 parsed && !string.IsNullOrEmpty(host))
+                    {
+                        _certificateExpiry[host] = parsed.NotAfter;
+                    }
+
+                    return errors == SslPolicyErrors.None || _options.IgnoreCertificateErrors;
+                },
             },
         };
 
@@ -98,14 +121,11 @@ public sealed class HttpTransport : IDisposable
                 CertificateDaysToExpiry = DaysToExpiry(request),
             };
         }
-        finally
-        {
-            _certificateExpiry.TryRemove(request, out _);
-        }
     }
 
     private int? DaysToExpiry(HttpRequestMessage request) =>
-        _certificateExpiry.TryGetValue(request, out var notAfter)
+        request.RequestUri?.Host is { Length: > 0 } host &&
+        _certificateExpiry.TryGetValue(host, out var notAfter)
             ? (int)Math.Floor((notAfter - DateTime.Now).TotalDays)
             : null;
 
