@@ -96,6 +96,22 @@ static async Task HandleAsync(TcpClient client, ServerState state, CancellationT
             var requestLine = await ReadRequestAsync(stream, token);
             var query = ParseQuery(requestLine);
 
+            // /control cambia el estado persistente sin tocar el teclado, para poder guionar una
+            // caída y su recuperación de punta a punta:
+            //     curl "http://127.0.0.1:8099/control?db=ERROR"
+            if (GetPath(requestLine).StartsWith("/control", StringComparison.OrdinalIgnoreCase))
+            {
+                if (query.TryGetValue("app", out var app)) { state.AppServer = app; }
+                if (query.TryGetValue("db", out var db)) { state.DbServer = db; }
+                if (query.TryGetValue("auth", out var auth)) { state.AuthServer = auth; }
+                if (query.TryGetValue("slow", out var slow)) { state.Slow = slow == "1"; }
+                if (query.TryGetValue("http500", out var err)) { state.HttpError = err == "1"; }
+
+                state.Print();
+                await WriteAsync(stream, 200, "text/plain; charset=utf-8", "estado actualizado", token);
+                return;
+            }
+
             var appServer = query.GetValueOrDefault("app") ?? state.AppServer;
             var dbServer = query.GetValueOrDefault("db") ?? state.DbServer;
             var authServer = query.GetValueOrDefault("auth") ?? state.AuthServer;
@@ -130,19 +146,7 @@ static async Task HandleAsync(TcpClient client, ServerState state, CancellationT
                    """
                 : "<html><body>Simulated server error</body></html>";
 
-            var bytes = Encoding.UTF8.GetBytes(body);
-            var reason = status == 200 ? "OK" : "Internal Server Error";
-            var contentType = status == 200 ? "text/xml; charset=utf-8" : "text/html";
-
-            var header =
-                $"HTTP/1.1 {status} {reason}\r\n" +
-                $"Content-Type: {contentType}\r\n" +
-                $"Content-Length: {bytes.Length}\r\n" +
-                "Connection: close\r\n\r\n";
-
-            await stream.WriteAsync(Encoding.ASCII.GetBytes(header), token);
-            await stream.WriteAsync(bytes, token);
-            await stream.FlushAsync(token);
+            await WriteAsync(stream, status, status == 200 ? "text/xml; charset=utf-8" : "text/html", body, token);
 
             Console.WriteLine(
                 $"  {DateTime.Now:HH:mm:ss}  ->  {status}  App={appServer} Db={dbServer} Auth={authServer}" +
@@ -153,6 +157,34 @@ static async Task HandleAsync(TcpClient client, ServerState state, CancellationT
             // Client hung up mid-exchange; nothing worth reporting in a test tool.
         }
     }
+}
+
+static async Task WriteAsync(NetworkStream stream, int status, string contentType, string body, CancellationToken token)
+{
+    var bytes = Encoding.UTF8.GetBytes(body);
+    var reason = status switch { 200 => "OK", 500 => "Internal Server Error", _ => "Response" };
+
+    var header =
+        $"HTTP/1.1 {status} {reason}\r\n" +
+        $"Content-Type: {contentType}\r\n" +
+        $"Content-Length: {bytes.Length}\r\n" +
+        "Connection: close\r\n\r\n";
+
+    await stream.WriteAsync(Encoding.ASCII.GetBytes(header), token);
+    await stream.WriteAsync(bytes, token);
+    await stream.FlushAsync(token);
+}
+
+static string GetPath(string requestLine)
+{
+    var parts = requestLine.Split(' ');
+    if (parts.Length < 2)
+    {
+        return "/";
+    }
+
+    var questionMark = parts[1].IndexOf('?');
+    return questionMark < 0 ? parts[1] : parts[1][..questionMark];
 }
 
 /// <summary>Reads headers (and drains the body) and returns the request line.</summary>
