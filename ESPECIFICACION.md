@@ -136,12 +136,12 @@ un servicio de Windows. `appsettings.json` no necesita recarga en caliente.
   },
 
   "Smtp": {
-    "Host": "mail.sdigitales.com.ar",
+    "Host": "mail.tu-dominio.com",
     "Port": 587,
     "UseSsl": true,
-    "Username": "alertas@sdigitales.com.ar",
+    "Username": "alertas@tu-dominio.com",
     "ProtectedPassword": "<blob DPAPI LocalMachine en Base64>",   // ver §7.1
-    "FromAddress": "alertas@sdigitales.com.ar",
+    "FromAddress": "alertas@tu-dominio.com",
     "FromDisplayName": "WebServiceAlerter",
     "RetryCount": 3,
     "RetryBackoffSeconds": 5,
@@ -487,3 +487,4 @@ Es lo que convierte al alerter de "reporta el problema" en "evita el llamado".
    Falta confirmar si se monitorean ambos (recomendado) o solo WSFEv1.
 3. **Datos de la casilla de envío**: host SMTP, puerto, y la casilla dedicada a crear (§7.1).
    Necesarios recién para la fase 2.
+

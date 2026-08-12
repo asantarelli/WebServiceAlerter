@@ -123,8 +123,20 @@ public sealed class MainForm : Form
             ForeColor = Color.FromArgb(55, 65, 81),
         };
 
+        // Leyenda como texto y no como leyenda del gráfico: son marcas verticales, no series, y
+        // explicarlas en una línea evita robarle espacio al gráfico.
+        var chartLegend = new Label
+        {
+            Dock = DockStyle.Top,
+            Height = 18,
+            Text = "Marcas verticales:   amarillo = respuesta lenta      naranja = fallo aislado      rojo = incidente confirmado",
+            Font = new Font(Font.FontFamily, 8.25f),
+            ForeColor = Color.FromArgb(107, 114, 128),
+        };
+
         _plot = new FormsPlot { Dock = DockStyle.Fill };
         chartPanel.Controls.Add(_plot);
+        chartPanel.Controls.Add(chartLegend);
         chartPanel.Controls.Add(chartTitle);
 
         Controls.Add(chartPanel);
@@ -305,6 +317,50 @@ public sealed class MainForm : Form
         var points = _history.GetLatency(_selectedEndpointId, ChartWindow);
         var answered = points.Where(p => p.LatencyMs is not null).ToList();
 
+        // Los incidentes confirmados se cargan primero para poder distinguir, en el gráfico, un
+        // fallo aislado de uno que formó parte de una caída real. Ver la diferencia de un vistazo
+        // es lo que separa "ARCA hipó una vez" de "ARCA estuvo caído un minuto".
+        var incidents = _history.GetIncidents(ChartWindow)
+            .Where(i => string.Equals(i.EndpointId, _selectedEndpointId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        bool BelongsToIncident(DateTime at) =>
+            incidents.Any(i => at >= i.StartedAt.AddSeconds(-1) && at <= (i.ResolvedAt ?? DateTime.Now).AddSeconds(1));
+
+        foreach (var point in points)
+        {
+            var isFailure = point.LatencyMs is null ||
+                            (point.Outcome != HistoryReader.OutcomeOk &&
+                             point.Outcome != HistoryReader.OutcomeSlow &&
+                             point.Outcome != HistoryReader.OutcomeNotVerifiable);
+
+            ScottPlot.Color color;
+            double width;
+
+            if (isFailure)
+            {
+                // Rojo si fue parte de un incidente confirmado; naranja si fue un fallo suelto.
+                color = BelongsToIncident(point.At)
+                    ? new ScottPlot.Color(239, 68, 68).WithAlpha(0.85)
+                    : new ScottPlot.Color(234, 88, 12).WithAlpha(0.60);
+                width = 1.5;
+            }
+            else if (point.Outcome == HistoryReader.OutcomeSlow)
+            {
+                color = new ScottPlot.Color(245, 158, 11).WithAlpha(0.45);
+                width = 1;
+            }
+            else
+            {
+                continue;
+            }
+
+            var line = plot.Add.VerticalLine(point.At.ToOADate());
+            line.Color = color;
+            line.LineWidth = (float)width;
+        }
+
+        // La serie se dibuja al final para que quede por encima de las marcas de evento.
         if (answered.Count > 0)
         {
             var xs = answered.Select(p => p.At.ToOADate()).ToArray();
@@ -314,17 +370,6 @@ public sealed class MainForm : Form
             scatter.Color = new ScottPlot.Color(37, 99, 235);
             scatter.MarkerSize = 0;
             scatter.LineWidth = 1.6f;
-        }
-
-        // Una línea roja por cada chequeo fallido: el ojo encuentra los problemas sin leer nada.
-        foreach (var failure in points.Where(p => p.LatencyMs is null ||
-                                                  (p.Outcome != HistoryReader.OutcomeOk &&
-                                                   p.Outcome != HistoryReader.OutcomeSlow &&
-                                                   p.Outcome != HistoryReader.OutcomeNotVerifiable)))
-        {
-            var line = plot.Add.VerticalLine(failure.At.ToOADate());
-            line.Color = ScottPlot.Colors.Red.WithAlpha(0.35);
-            line.LineWidth = 1;
         }
 
         plot.Axes.DateTimeTicksBottom();
