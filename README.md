@@ -67,6 +67,7 @@ Comandos disponibles:
 | `--once` | Chequea todo una vez y muestra el resultado. Lo más rápido para ver si sirve. |
 | `--list` | Lista los endpoints configurados. |
 | `--test <id>` | Chequea un solo endpoint, con el detalle crudo. |
+| `--history [horas]` | Qué registró el monitor en ese período: disponibilidad, incidentes y fallos sueltos. Es el comando para cuando alguien reporta "no pude facturar a las diez y cuarto". |
 | `--test-mail` | Manda un mail de prueba a los destinatarios configurados. |
 | `--protect-password` | Cifra la contraseña SMTP con DPAPI para esta máquina. |
 | *(sin argumentos)* | Corre el loop de monitoreo (consola, o como servicio de Windows). |

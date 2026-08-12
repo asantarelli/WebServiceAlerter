@@ -198,6 +198,106 @@ public sealed class DataRecorder : IDisposable
         }
     }
 
+    /// <summary>
+    /// Everything recorded for one endpoint since <paramref name="from"/>, grouped by outcome.
+    /// This is what makes the stored history usable: when the user says "no pude facturar a las
+    /// diez y cuarto", this is how you find out what the monitor actually saw at that moment
+    /// instead of arguing from memory.
+    /// </summary>
+    public IReadOnlyList<(string EndpointId, ProbeOutcome Outcome, int Count)> GetOutcomeCounts(DateTimeOffset from)
+    {
+        var result = new List<(string, ProbeOutcome, int)>();
+
+        Query("""
+            SELECT EndpointId, Outcome, COUNT(*)
+            FROM Samples WHERE Timestamp >= $from
+            GROUP BY EndpointId, Outcome
+            ORDER BY EndpointId, Outcome
+            """,
+            cmd => cmd.Parameters.AddWithValue("$from", from.ToUnixTimeSeconds()),
+            reader => result.Add((reader.GetString(0), (ProbeOutcome)reader.GetInt32(1), reader.GetInt32(2))),
+            "No pude leer el resumen de muestras.");
+
+        return result;
+    }
+
+    /// <summary>Individual failed checks, newest first — the timeline to line up against the
+    /// moment the user reports.</summary>
+    public IReadOnlyList<(DateTimeOffset At, string EndpointId, ProbeOutcome Outcome, double? LatencyMs)> GetFailures(
+        DateTimeOffset from, int limit)
+    {
+        var result = new List<(DateTimeOffset, string, ProbeOutcome, double?)>();
+
+        Query($"""
+            SELECT Timestamp, EndpointId, Outcome, LatencyMs
+            FROM Samples
+            WHERE Timestamp >= $from AND Outcome NOT IN ({(int)ProbeOutcome.Ok}, {(int)ProbeOutcome.Slow})
+            ORDER BY Timestamp DESC LIMIT $limit
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$from", from.ToUnixTimeSeconds());
+                cmd.Parameters.AddWithValue("$limit", limit);
+            },
+            reader => result.Add((
+                DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(0)),
+                reader.GetString(1),
+                (ProbeOutcome)reader.GetInt32(2),
+                reader.IsDBNull(3) ? null : reader.GetDouble(3))),
+            "No pude leer las muestras fallidas.");
+
+        return result;
+    }
+
+    public IReadOnlyList<(string EndpointId, DateTimeOffset StartedAt, DateTimeOffset? ResolvedAt, ProbeOutcome Outcome, string? Detail)> GetIncidents(
+        DateTimeOffset from)
+    {
+        var result = new List<(string, DateTimeOffset, DateTimeOffset?, ProbeOutcome, string?)>();
+
+        Query("""
+            SELECT EndpointId, StartedAt, ResolvedAt, Outcome, Detail
+            FROM Incidents WHERE StartedAt >= $from
+            ORDER BY StartedAt DESC
+            """,
+            cmd => cmd.Parameters.AddWithValue("$from", from.ToUnixTimeSeconds()),
+            reader => result.Add((
+                reader.GetString(0),
+                DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(1)),
+                reader.IsDBNull(2) ? null : DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(2)),
+                (ProbeOutcome)reader.GetInt32(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4))),
+            "No pude leer los incidentes.");
+
+        return result;
+    }
+
+    private void Query(string sql, Action<SqliteCommand> bind, Action<SqliteDataReader> read, string errorMessage)
+    {
+        if (_connection is null)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            try
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.CommandText = sql;
+                bind(cmd);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    read(reader);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "{Message}", errorMessage);
+            }
+        }
+    }
+
     private void Execute(string sql, Action<SqliteCommand> bind, string errorMessage)
     {
         if (_connection is null)

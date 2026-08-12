@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using WebServiceAlerter.Alerting;
 using WebServiceAlerter.Configuration;
+using WebServiceAlerter.Data;
 using WebServiceAlerter.Monitoring;
 using WebServiceAlerter.Probes;
 using WebServiceAlerter.Security;
@@ -92,6 +93,16 @@ internal static class Cli
         if (args.Contains("--test-mail"))
         {
             return await TestMailAsync(services);
+        }
+
+        var historyIndex = Array.IndexOf(args, "--history");
+        if (historyIndex >= 0)
+        {
+            var hours = historyIndex + 1 < args.Length && int.TryParse(args[historyIndex + 1], out var parsed)
+                ? parsed
+                : 24;
+
+            return History(services, endpoints, hours);
         }
 
         var testIndex = Array.IndexOf(args, "--test");
@@ -193,6 +204,99 @@ internal static class Cli
         }
 
         return anyDown ? 3 : 0;
+    }
+
+    /// <summary>
+    /// Prints what the monitor recorded over a window. This is the command to reach for when
+    /// somebody reports "no pude facturar a las diez y cuarto": it turns the stored history into
+    /// an answer instead of leaving it to memory and impressions.
+    /// </summary>
+    private static int History(IServiceProvider services, IReadOnlyList<ResolvedEndpoint> endpoints, int hours)
+    {
+        var recorder = services.GetRequiredService<DataRecorder>();
+
+        if (!recorder.IsAvailable)
+        {
+            Console.WriteLine($"No pude abrir la base de datos: {recorder.InitializationError}");
+            return 1;
+        }
+
+        var from = DateTimeOffset.UtcNow.AddHours(-hours);
+        var names = endpoints.ToDictionary(e => e.Id, e => e.Name, StringComparer.OrdinalIgnoreCase);
+        var counts = recorder.GetOutcomeCounts(from);
+
+        Console.WriteLine();
+        Console.WriteLine($"Historial de las últimas {hours} h — {recorder.DatabasePath}");
+        Console.WriteLine();
+
+        if (counts.Count == 0)
+        {
+            Console.WriteLine("No hay nada registrado en ese período.");
+            Console.WriteLine("El servicio graba mientras corre; si estuvo detenido, no hay datos.");
+            return 0;
+        }
+
+        foreach (var group in counts.GroupBy(c => c.EndpointId))
+        {
+            var total = group.Sum(g => g.Count);
+            var verifiable = group.Where(g => g.Outcome.CountsTowardUptime()).Sum(g => g.Count);
+            var up = group.Where(g => g.Outcome.IsUp()).Sum(g => g.Count);
+
+            Console.WriteLine(names.GetValueOrDefault(group.Key, group.Key));
+
+            // Uptime over verifiable samples only: time without internet is not the monitored
+            // service's fault and must not be charged to it.
+            var uptime = verifiable == 0 ? "sin datos verificables" : $"{(double)up / verifiable:P2}";
+            Console.WriteLine($"    {total} chequeos — disponibilidad {uptime}");
+
+            foreach (var (_, outcome, count) in group.OrderByDescending(g => g.Count))
+            {
+                var color = outcome.IsUp() ? ConsoleColor.Green
+                          : outcome == ProbeOutcome.NotVerifiable ? ConsoleColor.DarkGray
+                          : ConsoleColor.Red;
+
+                Write($"    {count,6}  ", color);
+                Console.WriteLine(outcome.ToSpanish());
+            }
+
+            Console.WriteLine();
+        }
+
+        var incidents = recorder.GetIncidents(from);
+        Console.WriteLine($"Incidentes confirmados: {incidents.Count}");
+
+        foreach (var (endpointId, startedAt, resolvedAt, outcome, detail) in incidents)
+        {
+            var duration = (resolvedAt ?? DateTimeOffset.UtcNow) - startedAt;
+            var closing = resolvedAt is null ? " (en curso)" : "";
+
+            Write("  ! ", ConsoleColor.Red);
+            Console.WriteLine($"{startedAt.ToLocalTime():dd/MM HH:mm:ss}  {names.GetValueOrDefault(endpointId, endpointId)}");
+            Console.WriteLine($"      {outcome.ToSpanish()}{(string.IsNullOrWhiteSpace(detail) ? "" : $" — {detail}")}");
+            Console.WriteLine($"      duró {AlertDispatcher.FormatDuration(duration)}{closing}");
+        }
+
+        // Individual failures matter even when they never became an incident: a blip that never
+        // reached the confirmation threshold is invisible in the incident list, but it is exactly
+        // what a user hits when a single invoice fails and the next one works.
+        var failures = recorder.GetFailures(from, 20);
+        Console.WriteLine();
+        Console.WriteLine($"Chequeos fallidos sueltos (los {Math.Min(20, failures.Count)} más recientes):");
+
+        if (failures.Count == 0)
+        {
+            Console.WriteLine("  ninguno.");
+        }
+
+        foreach (var (at, endpointId, outcome, latencyMs) in failures)
+        {
+            Console.WriteLine(
+                $"  {at.ToLocalTime():dd/MM HH:mm:ss}  {names.GetValueOrDefault(endpointId, endpointId)}" +
+                $"  —  {outcome.ToSpanish()}" +
+                (latencyMs is { } ms ? $" ({ms:F0} ms)" : ""));
+        }
+
+        return 0;
     }
 
     private static async Task<int> TestMailAsync(IServiceProvider services)
