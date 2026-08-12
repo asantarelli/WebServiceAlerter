@@ -21,7 +21,7 @@
   "Profiles": {
 
     "arca-wsfev1": {
-      "Description": "ARCA/AFIP WSFEv1 — método FEDummy, sin autenticación. Verificar el namespace contra la documentación vigente antes de usar en producción.",
+      "Description": "ARCA/AFIP WSFEv1 — método FEDummy, sin autenticación. Namespace confirmado contra código de facturación en producción (mismo xmlns:ar que usan FECAESolicitar y FECompUltimoAutorizado).",
       "SoapAction": "http://ar.gov.afip.dif.FEV1/FEDummy",
       "ContentType": "text/xml; charset=utf-8",
       "Envelope": "<?xml version=\"1.0\" encoding=\"utf-8\"?><soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:ar=\"http://ar.gov.afip.dif.FEV1/\"><soap:Body><ar:FEDummy /></soap:Body></soap:Envelope>",
