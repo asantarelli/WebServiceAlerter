@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WebServiceAlerter.Alerting;
@@ -27,6 +28,14 @@ public sealed class Worker : BackgroundService
     private readonly Dictionary<string, EndpointTracker> _trackers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> _nextDue = new(StringComparer.OrdinalIgnoreCase);
     private readonly Random _random = new();
+
+    /// <summary>
+    /// En consola se informa cada chequeo; como servicio, sólo los cambios de estado.
+    /// Corriendo a mano, el silencio es indistinguible de estar colgado — y la corrida
+    /// interactiva es justamente la que se usa para diagnosticar. En el log de un servicio que
+    /// corre meses, en cambio, una línea por chequeo es puro ruido.
+    /// </summary>
+    private readonly bool _logEveryCheck = !WindowsServiceHelpers.IsWindowsService();
 
     private IReadOnlyList<ResolvedEndpoint> _endpoints = [];
 
@@ -122,6 +131,7 @@ public sealed class Worker : BackgroundService
             }
 
             RecordIncident(transition);
+            LogCheck(result);
             LogStateChange(tracker, previousState, result);
         }
 
@@ -144,6 +154,29 @@ public sealed class Worker : BackgroundService
             case TransitionKind.Recovered:
                 _recorder.RecordIncidentResolved(transition.Endpoint.Id, DateTimeOffset.UtcNow);
                 break;
+        }
+    }
+
+    private void LogCheck(ProbeResult result)
+    {
+        if (!_logEveryCheck)
+        {
+            return;
+        }
+
+        var endpoint = _endpoints.First(e => e.Id == result.EndpointId);
+        var latency = result.LatencyMs is { } ms ? $"{ms:F0} ms" : "sin respuesta";
+        var detail = string.IsNullOrWhiteSpace(result.Detail) ? "" : $" — {result.Detail}";
+
+        if (result.IsUp)
+        {
+            _logger.LogInformation("{Name}: {Outcome} ({Latency}){Detail}",
+                endpoint.Name, result.Outcome.ToSpanish(), latency, detail);
+        }
+        else
+        {
+            _logger.LogWarning("{Name}: {Outcome} ({Latency}){Detail}",
+                endpoint.Name, result.Outcome.ToSpanish(), latency, detail);
         }
     }
 
