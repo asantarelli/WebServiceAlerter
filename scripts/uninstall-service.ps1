@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Da de baja el servicio WebServiceAlerter. Requiere consola elevada.
 

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Compila WebServiceAlerter en modo release y lo deja listo para instalar.
 
@@ -35,7 +35,9 @@ $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvoca
 if (-not $Output) { $Output = Join-Path $root '..\publish' }
 
 $project = Join-Path $root '..\src\WebServiceAlerter\WebServiceAlerter.csproj'
+$viewerProject = Join-Path $root '..\src\WebServiceAlerter.Viewer\WebServiceAlerter.Viewer.csproj'
 $Output = [System.IO.Path]::GetFullPath($Output)
+$viewerOutput = Join-Path $Output 'Viewer'
 
 Write-Host "Publicando $Configuration / $Runtime -> $Output" -ForegroundColor Cyan
 
@@ -51,7 +53,22 @@ dotnet publish $project `
     -p:DebugType=none
 
 if ($LASTEXITCODE -ne 0) {
-    throw "Falló la publicación (código $LASTEXITCODE)."
+    throw "Falló la publicación del servicio (código $LASTEXITCODE)."
+}
+
+# El Viewer va en una subcarpeta del mismo paquete. Sin él sólo se instalaría el monitor, y la
+# pantalla es lo que el cliente realmente usa: entregar uno sin el otro no es una instalación.
+Write-Host "Publicando el Viewer -> $viewerOutput" -ForegroundColor Cyan
+
+dotnet publish $viewerProject `
+    --configuration $Configuration `
+    --runtime $Runtime `
+    --self-contained true `
+    --output $viewerOutput `
+    -p:DebugType=none
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Falló la publicación del Viewer (código $LASTEXITCODE)."
 }
 
 # appsettings.Local.json es configuración de desarrollo y puede tener credenciales reales.
@@ -74,4 +91,11 @@ $size = [math]::Round((Get-ChildItem $Output -Recurse -File | Measure-Object -Pr
 
 Write-Host ""
 Write-Host "Listo. $size MB en $Output" -ForegroundColor Green
+Write-Host "  servicio: WebServiceAlerter.exe" -ForegroundColor Gray
+Write-Host "  pantalla: Viewer\WebServiceAlerterViewer.exe" -ForegroundColor Gray
+Write-Host ""
 Write-Host "Siguiente paso (consola elevada):  .\scripts\install-service.ps1" -ForegroundColor Gray
+Write-Host ""
+Write-Host "OJO: si dejaste el monitor corriendo en una consola, paralo antes de arrancar el" -ForegroundColor Yellow
+Write-Host "servicio. Dos instancias miden en paralelo sobre la misma base y mandan las alertas" -ForegroundColor Yellow
+Write-Host "por duplicado." -ForegroundColor Yellow

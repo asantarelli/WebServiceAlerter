@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Registra WebServiceAlerter como servicio de Windows. Requiere consola elevada.
 
