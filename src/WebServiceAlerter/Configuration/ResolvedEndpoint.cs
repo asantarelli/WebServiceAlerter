@@ -27,6 +27,25 @@ public sealed record ResolvedEndpoint
     public IReadOnlyList<MaintenanceWindow> MaintenanceWindows { get; init; } = [];
 
     public bool IsInMaintenance(DateTime localNow) => MaintenanceWindows.Any(w => w.Contains(localNow));
+
+    /// <summary>
+    /// Si dos definiciones describen el mismo chequeo. Se comparan campo por campo y no con la
+    /// igualdad del record porque éste incluye una lista, cuya igualdad es por referencia: dos
+    /// resoluciones de la misma configuración darían siempre distinto, y el servicio recrearía
+    /// los trackers en cada recarga, perdiendo una caída en curso y anunciando una recuperación
+    /// que nunca ocurrió.
+    /// </summary>
+    public bool IsSameDefinition(ResolvedEndpoint other) =>
+        Id == other.Id &&
+        Name == other.Name &&
+        Type == other.Type &&
+        Url == other.Url &&
+        IntervalSeconds == other.IntervalSeconds &&
+        TimeoutMs == other.TimeoutMs &&
+        LatencyWarnMs == other.LatencyWarnMs &&
+        MustContain == other.MustContain &&
+        ReferenceEquals(Profile, other.Profile) &&
+        MaintenanceWindows.Count == other.MaintenanceWindows.Count;
 }
 
 /// <summary>

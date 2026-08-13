@@ -68,6 +68,9 @@ public sealed class EndpointTracker
         _options = options;
     }
 
+    /// <summary>La definición que este tracker está siguiendo, para detectar cuándo cambió.</summary>
+    public ResolvedEndpoint Endpoint => _endpoint;
+
     private MonitoringOptions Options => _options.CurrentValue;
 
     public EndpointState State { get; private set; } = EndpointState.Unknown;

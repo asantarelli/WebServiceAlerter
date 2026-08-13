@@ -143,7 +143,7 @@ public sealed class MainForm : Form
         {
             Dock = DockStyle.Top,
             Height = 18,
-            Text = "Marcas verticales:   amarillo = respuesta lenta      naranja = fallo aislado      rojo = incidente confirmado",
+            Text = "Marcas:   amarillo = respuesta lenta      naranja = fallo aislado      rojo = incidente confirmado      gris = sin datos (monitor detenido)",
             Font = new Font(Font.FontFamily, 8.25f),
             ForeColor = Color.FromArgb(107, 114, 128),
         };
@@ -409,11 +409,35 @@ public sealed class MainForm : Form
             barra.LineWidth = width;
         }
 
-        // La serie se dibuja al final para que quede por encima de las marcas de evento.
-        if (answered.Count > 0)
+        // Períodos sin ninguna muestra: el servicio estuvo detenido o el equipo apagado. Se
+        // marcan en gris y, sobre todo, la serie se corta ahí. Antes se unía el último punto
+        // anterior con el primero posterior, dibujando una rampa que parecía latencia creciendo
+        // durante la noche cuando en realidad no se midió nada.
+        foreach (var (desde, hasta) in FindGaps(points))
         {
-            var xs = answered.Select(p => p.At.ToOADate()).ToArray();
-            var ys = answered.Select(p => p.LatencyMs!.Value).ToArray();
+            var banda = plot.Add.HorizontalSpan(desde.ToOADate(), hasta.ToOADate());
+            banda.FillColor = new ScottPlot.Color(156, 163, 175).WithAlpha(0.18);
+            banda.LineColor = ScottPlot.Colors.Transparent;
+        }
+
+        // La serie se dibuja al final para que quede por encima de las marcas de evento, y en
+        // tramos separados por los huecos.
+        foreach (var tramo in SplitIntoSegments(points))
+        {
+            var xs = tramo.Select(p => p.At.ToOADate()).ToArray();
+
+            // Un chequeo fallido vale 0 y no los 10.000 ms que tardó en vencer el tiempo de
+            // espera: ese número es el timeout configurado, no una medición, y usarlo estira la
+            // escala hasta aplastar el rango real contra el piso del gráfico. Con 0 la caída se
+            // ve como lo que es —se cayó a nada— y la escala sigue siendo legible.
+            var ys = tramo.Select(p => p.LatencyMs is { } ms && p.Outcome is HistoryReader.OutcomeOk or HistoryReader.OutcomeSlow
+                ? ms
+                : 0d).ToArray();
+
+            if (xs.Length == 0)
+            {
+                continue;
+            }
 
             var scatter = plot.Add.Scatter(xs, ys);
             scatter.Color = new ScottPlot.Color(37, 99, 235);
@@ -425,6 +449,85 @@ public sealed class MainForm : Form
         plot.YLabel("milisegundos");
         plot.Axes.AutoScale();
         _plot.Refresh();
+    }
+
+    /// <summary>
+    /// Umbral a partir del cual dos muestras consecutivas dejan de considerarse continuas. Se
+    /// deriva del ritmo real de la serie —la mediana de las separaciones, por tres— en vez de
+    /// fijarse a un número: el intervalo de chequeo es configurable, y un valor fijo trataría
+    /// como hueco lo normal en una instalación lenta.
+    /// </summary>
+    private static TimeSpan GapThreshold(IReadOnlyList<LatencyPoint> points)
+    {
+        if (points.Count < 3)
+        {
+            return TimeSpan.FromMinutes(5);
+        }
+
+        var separaciones = new List<double>(points.Count - 1);
+        for (var i = 1; i < points.Count; i++)
+        {
+            separaciones.Add((points[i].At - points[i - 1].At).TotalSeconds);
+        }
+
+        separaciones.Sort();
+        var tipica = separaciones[separaciones.Count / 2];
+
+        return TimeSpan.FromSeconds(Math.Max(tipica * 3, 120));
+    }
+
+    private static IEnumerable<(DateTime Desde, DateTime Hasta)> FindGaps(IReadOnlyList<LatencyPoint> points)
+    {
+        var umbral = GapThreshold(points);
+
+        for (var i = 1; i < points.Count; i++)
+        {
+            if (points[i].At - points[i - 1].At > umbral)
+            {
+                yield return (points[i - 1].At, points[i].At);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Parte la serie en tramos continuos. Las muestras no verificables (sin internet) cortan el
+    /// tramo igual que un hueco: no se midió nada, así que unirlas con una línea sería inventar
+    /// un dato.
+    /// </summary>
+    private static List<List<LatencyPoint>> SplitIntoSegments(IReadOnlyList<LatencyPoint> points)
+    {
+        var umbral = GapThreshold(points);
+        var tramos = new List<List<LatencyPoint>>();
+        var actual = new List<LatencyPoint>();
+
+        foreach (var punto in points)
+        {
+            if (punto.Outcome == HistoryReader.OutcomeNotVerifiable)
+            {
+                if (actual.Count > 0)
+                {
+                    tramos.Add(actual);
+                    actual = new List<LatencyPoint>();
+                }
+
+                continue;
+            }
+
+            if (actual.Count > 0 && punto.At - actual[^1].At > umbral)
+            {
+                tramos.Add(actual);
+                actual = new List<LatencyPoint>();
+            }
+
+            actual.Add(punto);
+        }
+
+        if (actual.Count > 0)
+        {
+            tramos.Add(actual);
+        }
+
+        return tramos;
     }
 
     private void RefreshIncidents()

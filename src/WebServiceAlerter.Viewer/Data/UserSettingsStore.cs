@@ -8,6 +8,7 @@ public sealed record UserSettings
 {
     public string SiteName { get; init; } = "";
     public string Recipients { get; init; } = "";
+    public int IntervalSeconds { get; init; } = 30;
     public int FailuresToAlert { get; init; } = 2;
     public int SuccessesToRecover { get; init; } = 2;
     public int ReminderIntervalMinutes { get; init; } = 20;
@@ -38,6 +39,7 @@ public sealed class UserSettingsStore
         {
             SiteName = GetString(root, "General", "SiteName") ?? "",
             Recipients = GetString(root, "Alerting", "Recipients") ?? "",
+            IntervalSeconds = GetInt(root, "Monitoring", "DefaultIntervalSeconds") ?? 30,
             FailuresToAlert = GetInt(root, "Monitoring", "FailuresToAlert") ?? 2,
             SuccessesToRecover = GetInt(root, "Monitoring", "SuccessesToRecover") ?? 2,
             ReminderIntervalMinutes = GetInt(root, "Monitoring", "ReminderIntervalMinutes") ?? 20,
@@ -50,6 +52,7 @@ public sealed class UserSettingsStore
 
         Set(root, "General", "SiteName", JsonValue.Create(settings.SiteName));
         Set(root, "Alerting", "Recipients", JsonValue.Create(settings.Recipients));
+        Set(root, "Monitoring", "DefaultIntervalSeconds", JsonValue.Create(settings.IntervalSeconds));
         Set(root, "Monitoring", "FailuresToAlert", JsonValue.Create(settings.FailuresToAlert));
         Set(root, "Monitoring", "SuccessesToRecover", JsonValue.Create(settings.SuccessesToRecover));
         Set(root, "Monitoring", "ReminderIntervalMinutes", JsonValue.Create(settings.ReminderIntervalMinutes));

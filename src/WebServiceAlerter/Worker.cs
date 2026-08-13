@@ -38,6 +38,7 @@ public sealed class Worker : BackgroundService
     private readonly bool _logEveryCheck = !WindowsServiceHelpers.IsWindowsService();
 
     private IReadOnlyList<ResolvedEndpoint> _endpoints = [];
+    private volatile bool _needsResync;
 
     public Worker(
         ProbeRunner runner,
@@ -59,22 +60,17 @@ public sealed class Worker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _endpoints = _runner.ResolveEndpoints();
+        SyncEndpoints();
 
         if (_endpoints.Count == 0)
         {
             _logger.LogError("No hay endpoints configurados. Revisá Monitoring:Endpoints.");
-            return;
         }
 
-        foreach (var endpoint in _endpoints)
-        {
-            _trackers[endpoint.Id] = new EndpointTracker(endpoint, _monitoringOptions);
-            _nextDue[endpoint.Id] = DateTimeOffset.UtcNow;
-            _logger.LogInformation(
-                "Monitoreando {Name} ({Type}) cada {Interval}s — {Url}",
-                endpoint.Name, endpoint.Type, endpoint.IntervalSeconds, endpoint.Url);
-        }
+        // El cliente edita la configuración desde la pantalla y no puede reiniciar un servicio de
+        // Windows, así que los cambios tienen que aplicarse solos: agregar o quitar un endpoint,
+        // corregir una URL o cambiar cada cuántos segundos se chequea.
+        using var subscription = _monitoringOptions.OnChange(_ => _needsResync = true);
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
 
@@ -82,6 +78,12 @@ public sealed class Worker : BackgroundService
         {
             do
             {
+                if (_needsResync)
+                {
+                    _needsResync = false;
+                    SyncEndpoints();
+                }
+
                 await RunDueChecksAsync(stoppingToken);
             }
             while (await timer.WaitForNextTickAsync(stoppingToken));
@@ -90,6 +92,48 @@ public sealed class Worker : BackgroundService
         {
             // Normal shutdown.
         }
+    }
+
+    /// <summary>
+    /// Alinea trackers y agenda con la configuración vigente.
+    ///
+    /// Un endpoint cuya definición cambió (otra URL, otro tipo de chequeo) empieza de cero: su
+    /// estado anterior describía un servicio distinto y arrastrarlo mentiría. En cambio, uno cuya
+    /// definición no cambió conserva su estado, para que releer la configuración no borre una
+    /// caída en curso ni dispare un falso aviso de recuperación.
+    /// </summary>
+    private void SyncEndpoints()
+    {
+        var resueltos = _runner.ResolveEndpoints();
+        var vigentes = resueltos.ToDictionary(e => e.Id, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var id in _trackers.Keys.Where(id => !vigentes.ContainsKey(id)).ToList())
+        {
+            _trackers.Remove(id);
+            _nextDue.Remove(id);
+            _logger.LogInformation("Ya no se monitorea {Id}: salió de la configuración.", id);
+        }
+
+        foreach (var endpoint in resueltos)
+        {
+            if (_trackers.TryGetValue(endpoint.Id, out var existente) && existente.Endpoint.IsSameDefinition(endpoint))
+            {
+                continue;
+            }
+
+            var esNuevo = !_trackers.ContainsKey(endpoint.Id);
+
+            _trackers[endpoint.Id] = new EndpointTracker(endpoint, _monitoringOptions);
+            _nextDue[endpoint.Id] = DateTimeOffset.UtcNow;
+
+            _logger.LogInformation(
+                esNuevo
+                    ? "Monitoreando {Name} ({Type}) cada {Interval}s — {Url}"
+                    : "Reconfigurado {Name} ({Type}) cada {Interval}s — {Url}",
+                endpoint.Name, endpoint.Type, endpoint.IntervalSeconds, endpoint.Url);
+        }
+
+        _endpoints = resueltos;
     }
 
     private async Task RunDueChecksAsync(CancellationToken cancellationToken)

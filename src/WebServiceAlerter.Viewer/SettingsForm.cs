@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.RegularExpressions;
 using WebServiceAlerter.Viewer.Data;
 
@@ -14,22 +15,26 @@ public sealed class SettingsForm : Form
 {
     private readonly UserSettingsStore _store;
 
+    private readonly Panel _content;
     private readonly TextBox _siteName;
     private readonly TextBox _recipients;
+    private readonly NumericUpDown _interval;
     private readonly NumericUpDown _failures;
     private readonly NumericUpDown _successes;
     private readonly NumericUpDown _reminder;
     private readonly Button _testMail;
     private readonly Label _feedback;
 
+    private int _y;
+
     public SettingsForm(UserSettingsStore store)
     {
         _store = store;
 
         Text = "Configuración";
-        Width = 620;
-        Height = 470;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        ClientSize = new Size(620, 560);
+        MinimumSize = new Size(560, 420);
+        FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = false;
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterParent;
@@ -41,76 +46,101 @@ public sealed class SettingsForm : Form
             Icon = icon;
         }
 
-        var y = 18;
-
-        AddSectionTitle("Identificación", ref y);
-        AddLabel("Nombre de este equipo", "Aparece en el asunto de cada alerta, para saber de qué instalación viene.", ref y);
-        _siteName = AddTextBox(ref y);
-
-        y += 10;
-        AddSectionTitle("Avisos", ref y);
-        AddLabel("Mails de destino", "Separados por coma. La dirección desde la que se envía se configura aparte.", ref y);
-        _recipients = AddTextBox(ref y);
-
-        _testMail = new Button
+        // Contenido desplazable y botonera anclada abajo. Posicionar a mano contra Width/Height
+        // era el bug anterior: esas son las medidas exteriores de la ventana, no las del área de
+        // contenido, así que los botones caían encima de los campos. Con paneles acoplados la
+        // ubicación sale bien sola, y además aguanta que el usuario tenga otro escalado de
+        // pantalla o agrande la ventana.
+        _content = new Panel
         {
-            Text = "Enviar mail de prueba",
-            Left = 24,
-            Top = y,
-            Width = 180,
-            Height = 28,
-        };
-        _testMail.Click += async (_, _) => await SendTestMailAsync();
-
-        _feedback = new Label
-        {
-            Left = 214,
-            Top = y + 6,
-            Width = 360,
-            AutoEllipsis = true,
-            ForeColor = Color.FromArgb(107, 114, 128),
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            Padding = new Padding(20, 14, 20, 8),
+            BackColor = Color.White,
         };
 
-        Controls.Add(_testMail);
-        Controls.Add(_feedback);
-        y += 44;
-
-        AddSectionTitle("Sensibilidad", ref y);
-        AddLabel("Cuántos chequeos fallidos seguidos hacen falta para avisar que algo se cayó",
-                 "Más bajo avisa antes, pero puede avisar por un tropiezo momentáneo.", ref y);
-        _failures = AddNumeric(1, 10, ref y);
-
-        AddLabel("Cuántos chequeos correctos seguidos hacen falta para darlo por recuperado", null, ref y);
-        _successes = AddNumeric(1, 10, ref y);
-
-        AddLabel("Cada cuántos minutos repetir el aviso mientras siga caído", null, ref y);
-        _reminder = AddNumeric(1, 240, ref y);
-
-        var save = new Button
+        var buttonBar = new Panel
         {
-            Text = "Guardar",
-            Width = 110,
-            Height = 30,
-            Left = Width - 250,
-            Top = Height - 82,
-            DialogResult = DialogResult.OK,
+            Dock = DockStyle.Bottom,
+            Height = 58,
+            BackColor = Color.FromArgb(249, 250, 251),
+            Padding = new Padding(12, 12, 20, 12),
         };
-        save.Click += (_, _) => Save();
 
         var cancel = new Button
         {
             Text = "Cancelar",
             Width = 110,
-            Height = 30,
-            Left = Width - 132,
-            Top = Height - 82,
+            Height = 32,
+            Dock = DockStyle.Right,
             DialogResult = DialogResult.Cancel,
         };
 
-        Controls.Add(save);
-        Controls.Add(cancel);
+        var separator = new Panel { Width = 10, Dock = DockStyle.Right };
+
+        var save = new Button
+        {
+            Text = "Guardar",
+            Width = 110,
+            Height = 32,
+            Dock = DockStyle.Right,
+            DialogResult = DialogResult.OK,
+        };
+        save.Click += (_, _) => Save();
+
+        buttonBar.Controls.Add(cancel);
+        buttonBar.Controls.Add(separator);
+        buttonBar.Controls.Add(save);
+
+        // El Fill se agrega primero para que la botonera reserve su espacio y el contenido ocupe
+        // el resto: WinForms acopla en orden inverso al de la colección.
+        Controls.Add(_content);
+        Controls.Add(buttonBar);
+
         AcceptButton = save;
         CancelButton = cancel;
+
+        _y = 0;
+
+        AddSectionTitle("Identificación");
+        AddLabel("Nombre de este equipo", "Aparece en el asunto de cada alerta, para saber de qué instalación viene.");
+        _siteName = AddTextBox();
+
+        _y += 12;
+        AddSectionTitle("Avisos");
+        AddLabel("Mails de destino", "Separados por coma. La dirección desde la que se envía se configura aparte.");
+        _recipients = AddTextBox();
+
+        _testMail = new Button { Text = "Enviar mail de prueba", Left = 4, Top = _y, Width = 180, Height = 30 };
+        _testMail.Click += async (_, _) => await SendTestMailAsync();
+        _content.Controls.Add(_testMail);
+
+        _feedback = new Label
+        {
+            Left = 194,
+            Top = _y + 7,
+            Width = 380,
+            Height = 34,
+            ForeColor = Color.FromArgb(107, 114, 128),
+        };
+        _content.Controls.Add(_feedback);
+        _y += 46;
+
+        _y += 12;
+        AddSectionTitle("Sensibilidad");
+        AddLabel("Cada cuántos segundos se chequea cada servicio",
+                 "Más seguido detecta antes las caídas cortas, pero consulta más a servidores ajenos.");
+        _interval = AddNumeric(5, 3600);
+
+        AddLabel("Cuántos chequeos fallidos seguidos hacen falta para avisar que algo se cayó",
+                 "Más bajo avisa antes, pero puede avisar por un tropiezo momentáneo.");
+        _failures = AddNumeric(1, 10);
+
+        AddLabel("Cuántos chequeos correctos seguidos hacen falta para darlo por recuperado", null);
+        _successes = AddNumeric(1, 10);
+
+        AddLabel("Cada cuántos minutos repetir el aviso mientras siga caído", null);
+        _reminder = AddNumeric(1, 240);
 
         Load += (_, _) => LoadSettings();
     }
@@ -121,12 +151,13 @@ public sealed class SettingsForm : Form
 
         _siteName.Text = settings.SiteName;
         _recipients.Text = settings.Recipients;
+        _interval.Value = Math.Clamp(settings.IntervalSeconds, 5, 3600);
         _failures.Value = Math.Clamp(settings.FailuresToAlert, 1, 10);
         _successes.Value = Math.Clamp(settings.SuccessesToRecover, 1, 10);
         _reminder.Value = Math.Clamp(settings.ReminderIntervalMinutes, 1, 240);
     }
 
-    private void Save()
+    private bool Save()
     {
         var invalidos = InvalidAddresses(_recipients.Text);
         if (invalidos.Count > 0)
@@ -141,7 +172,7 @@ public sealed class SettingsForm : Form
                 MessageBoxIcon.Warning);
 
             DialogResult = DialogResult.None;
-            return;
+            return false;
         }
 
         try
@@ -150,16 +181,20 @@ public sealed class SettingsForm : Form
             {
                 SiteName = _siteName.Text.Trim(),
                 Recipients = _recipients.Text.Trim(),
+                IntervalSeconds = (int)_interval.Value,
                 FailuresToAlert = (int)_failures.Value,
                 SuccessesToRecover = (int)_successes.Value,
                 ReminderIntervalMinutes = (int)_reminder.Value,
             });
+
+            return true;
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, $"No pude guardar la configuración:\r\n\r\n{ex.Message}",
                 "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             DialogResult = DialogResult.None;
+            return false;
         }
     }
 
@@ -174,42 +209,61 @@ public sealed class SettingsForm : Form
     /// </summary>
     private async Task SendTestMailAsync()
     {
+        if (!Save())
+        {
+            return;
+        }
+
+        DialogResult = DialogResult.None;
+
         var exe = FindServiceExecutable();
 
         if (exe is null)
         {
-            _feedback.ForeColor = Color.FromArgb(185, 28, 28);
-            _feedback.Text = "No encontré WebServiceAlerter.exe junto al Viewer.";
+            ShowFeedback("No encontré WebServiceAlerter.exe. ¿Está instalado el servicio?", error: true);
             return;
         }
 
-        Save();
-
         _testMail.Enabled = false;
-        _feedback.ForeColor = Color.FromArgb(107, 114, 128);
-        _feedback.Text = "Enviando…";
+        ShowFeedback("Enviando…", error: false);
 
         try
         {
-            var proceso = Process.Start(new ProcessStartInfo(exe, "--test-mail")
+            var info = new ProcessStartInfo(exe, "--test-mail")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
-            })!;
+                RedirectStandardError = true,
+                WorkingDirectory = System.IO.Path.GetDirectoryName(exe)!,
+            };
+
+            using var proceso = Process.Start(info)!;
+
+            var salida = new StringBuilder();
+            salida.Append(await proceso.StandardOutput.ReadToEndAsync());
+            salida.Append(await proceso.StandardError.ReadToEndAsync());
 
             await proceso.WaitForExitAsync();
 
-            var ok = proceso.ExitCode == 0;
-            _feedback.ForeColor = ok ? Color.FromArgb(21, 128, 61) : Color.FromArgb(185, 28, 28);
-            _feedback.Text = ok
-                ? "Enviado. Revisá la bandeja de entrada."
-                : "No se pudo enviar. Revisá los destinatarios y el log.";
+            if (proceso.ExitCode == 0)
+            {
+                ShowFeedback("Enviado. Revisá la bandeja de entrada.", error: false);
+                return;
+            }
+
+            // Mostrar el motivo real y no un genérico: sin esto, "no se pudo enviar" obliga a ir
+            // a buscar el log para saber si fue la casilla, la red o un destinatario mal escrito.
+            var motivo = salida.ToString()
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(l => l.Trim())
+                .LastOrDefault(l => l.Length > 0);
+
+            ShowFeedback(motivo is { Length: > 0 } ? motivo : "No se pudo enviar. Revisá el log.", error: true);
         }
         catch (Exception ex)
         {
-            _feedback.ForeColor = Color.FromArgb(185, 28, 28);
-            _feedback.Text = ex.Message;
+            ShowFeedback(ex.Message, error: true);
         }
         finally
         {
@@ -217,83 +271,103 @@ public sealed class SettingsForm : Form
         }
     }
 
-    /// <summary>El Viewer se instala en una subcarpeta del servicio; en desarrollo puede estar
-    /// en cualquier lado, así que se prueban las ubicaciones razonables.</summary>
+    private void ShowFeedback(string text, bool error)
+    {
+        _feedback.ForeColor = error ? Color.FromArgb(185, 28, 28) : Color.FromArgb(21, 128, 61);
+        _feedback.Text = text;
+    }
+
+    /// <summary>
+    /// Instalado, el Viewer vive en una subcarpeta del servicio, así que alcanza con mirar el
+    /// directorio padre. En desarrollo puede estar en cualquier lado, de modo que se sube por el
+    /// árbol buscando también una carpeta publish.
+    /// </summary>
     private static string? FindServiceExecutable()
     {
-        var baseDir = AppContext.BaseDirectory;
+        const string nombre = "WebServiceAlerter.exe";
+        var directorio = new DirectoryInfo(AppContext.BaseDirectory);
 
-        var candidatos = new[]
+        for (var nivel = 0; nivel < 6 && directorio is not null; nivel++)
         {
-            System.IO.Path.Combine(baseDir, "WebServiceAlerter.exe"),
-            System.IO.Path.Combine(baseDir, "..", "WebServiceAlerter.exe"),
-            System.IO.Path.Combine(baseDir, "..", "..", "WebServiceAlerter.exe"),
-        };
+            var directo = System.IO.Path.Combine(directorio.FullName, nombre);
+            if (File.Exists(directo))
+            {
+                return directo;
+            }
 
-        return candidatos.Select(System.IO.Path.GetFullPath).FirstOrDefault(System.IO.File.Exists);
+            var publicado = System.IO.Path.Combine(directorio.FullName, "publish", nombre);
+            if (File.Exists(publicado))
+            {
+                return publicado;
+            }
+
+            directorio = directorio.Parent;
+        }
+
+        return null;
     }
 
     // ---- Helpers de armado del formulario ------------------------------------------------
 
-    private void AddSectionTitle(string text, ref int y)
+    private void AddSectionTitle(string text)
     {
-        Controls.Add(new Label
+        _content.Controls.Add(new Label
         {
             Text = text,
-            Left = 20,
-            Top = y,
+            Left = 0,
+            Top = _y,
             AutoSize = true,
             Font = new Font(Font.FontFamily, 10f, FontStyle.Bold),
             ForeColor = Color.FromArgb(37, 99, 235),
         });
 
-        y += 26;
+        _y += 28;
     }
 
-    private void AddLabel(string text, string? hint, ref int y)
+    private void AddLabel(string text, string? hint)
     {
-        Controls.Add(new Label
+        _content.Controls.Add(new Label
         {
             Text = text,
-            Left = 24,
-            Top = y,
+            Left = 4,
+            Top = _y,
             Width = 560,
-            Height = 16,
+            Height = 17,
             ForeColor = Color.FromArgb(31, 41, 55),
         });
 
-        y += 18;
+        _y += 19;
 
         if (hint is not null)
         {
-            Controls.Add(new Label
+            _content.Controls.Add(new Label
             {
                 Text = hint,
-                Left = 24,
-                Top = y,
+                Left = 4,
+                Top = _y,
                 Width = 560,
-                Height = 15,
+                Height = 16,
                 Font = new Font(Font.FontFamily, 7.75f),
                 ForeColor = Color.FromArgb(107, 114, 128),
             });
 
-            y += 17;
+            _y += 18;
         }
     }
 
-    private TextBox AddTextBox(ref int y)
+    private TextBox AddTextBox()
     {
-        var box = new TextBox { Left = 24, Top = y, Width = 555 };
-        Controls.Add(box);
-        y += 32;
+        var box = new TextBox { Left = 4, Top = _y, Width = 555 };
+        _content.Controls.Add(box);
+        _y += 34;
         return box;
     }
 
-    private NumericUpDown AddNumeric(int min, int max, ref int y)
+    private NumericUpDown AddNumeric(int min, int max)
     {
-        var control = new NumericUpDown { Left = 24, Top = y, Width = 80, Minimum = min, Maximum = max };
-        Controls.Add(control);
-        y += 30;
+        var control = new NumericUpDown { Left = 4, Top = _y, Width = 80, Minimum = min, Maximum = max };
+        _content.Controls.Add(control);
+        _y += 34;
         return control;
     }
 }
