@@ -69,17 +69,53 @@ Comandos disponibles:
 | `--test <id>` | Chequea un solo endpoint, con el detalle crudo. |
 | `--history [horas]` | Qué registró el monitor en ese período: disponibilidad, incidentes y fallos sueltos. Es el comando para cuando alguien reporta "no pude facturar a las diez y cuarto". |
 | `--test-mail` | Manda un mail de prueba a los destinatarios configurados. |
-| `--protect-password` | Cifra la contraseña SMTP con DPAPI para esta máquina. |
+| `--protect-password` | Cifra la contraseña SMTP con DPAPI y la guarda en `%ProgramData%\WebServiceAlerter\smtp.json`. Una vez por equipo. |
 | *(sin argumentos)* | Corre el loop de monitoreo (consola, o como servicio de Windows). |
+
+## Instalar
+
+```bash
+.\installer\build-installer.ps1
+```
+
+Genera un MSI con el servicio, el Viewer y los accesos directos. Necesita `dotnet tool restore`
+una vez (WiX viene fijado como herramienta local del repo).
+
+```bash
+msiexec /i WebServiceAlerter-0.2.0-win-x64.msi
+```
+
+Después, **una vez por equipo**, en consola elevada:
+
+```bash
+"C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe" --protect-password
+```
+
+La contraseña de la casilla de envío no viaja en el instalador por diseño: el blob DPAPI está
+atado a cada máquina, así que se genera ahí y se guarda fuera del directorio de instalación, donde
+las actualizaciones no lo pisan.
+
+> Se usa **WiX 5** y no 7 a propósito: la 7 exige adherir al *Open Source Maintenance Fee*, que
+> para uso comercial implica pagar. La 5 es libre y entiende el mismo esquema.
 
 ## Configuración
 
-Dos archivos, separados por **dueño** y no por máquina:
+Tres archivos, separados por **dueño** y no por máquina:
 
 | Archivo | Dónde | Quién lo edita | En una actualización |
 |---|---|---|---|
 | `appsettings.json` | Junto al ejecutable | Quien distribuye | **Se sobrescribe** |
-| `usersettings.json` | `%ProgramData%\WebServiceAlerter\` | El cliente | **Nunca se toca** |
+| `usersettings.json` | `%ProgramData%\WebServiceAlerter\` | El cliente, desde la pantalla | **Nunca se toca** |
+| `smtp.json` | `%ProgramData%\WebServiceAlerter\` | Se genera con `--protect-password` | **Nunca se toca** |
+
+Ese reparto es lo que hace que actualizar sea seguro: los valores por defecto y los perfiles se
+pueden corregir en una versión nueva sin pisar nada de lo que el cliente configuró, y sin dejarlo
+sin credenciales.
+
+El Viewer trae una pantalla de configuración con el nombre del equipo, los destinatarios y la
+sensibilidad de las alertas. Sólo expone parámetros que el servicio relee en caliente: el cliente
+no puede reiniciar un servicio de Windows, así que un campo que exigiera reinicio sería una
+promesa falsa.
 
 `usersettings.json` se relee en caliente, porque el cliente es un usuario común y no puede
 reiniciar un servicio de Windows. **En la v0.1 esto anda para los destinatarios pero todavía no

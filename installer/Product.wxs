@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Origen del instalador MSI de WebServiceAlerter.
+
+  Se construye con installer\build-installer.ps1, que publica las dos aplicaciones e invoca
+  `wix build` con los defines correctos.
+
+  Sobre la configuración y las actualizaciones — esto es lo importante de este archivo:
+
+    appsettings.json y profiles.json SÍ los maneja el MSI y se sobrescriben en cada
+    actualización. Es deliberado: son nuestros, y así una versión nueva puede corregir la URL
+    de un servicio o sumar un perfil sin depender de que nadie edite nada a mano.
+
+    Lo que el cliente configura vive en %ProgramData%\WebServiceAlerter y NO forma parte del
+    paquete, así que el instalador no puede tocarlo ni por accidente:
+      · usersettings.json  — nombre del equipo, destinatarios, sensibilidad
+      · smtp.json          — contraseña cifrada con DPAPI, generada una vez por equipo
+      · la base de datos y el historial de incidentes
+
+    Ese reparto es lo que hace que una actualización sea segura sin necesidad de trucos de MSI
+    para proteger archivos (Permanent, NeverOverwrite y compañía, que en la práctica no son
+    confiables entre ciclos de instalar/actualizar/desinstalar).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="WebServiceAlerter"
+           Manufacturer="SDigitales"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="7E1D4A93-6C25-4F0B-9A3E-5D8B2C41F0A7"
+           Language="3082"
+           Codepage="1252"
+           InstallerVersion="500"
+           Scope="perMachine">
+
+    <SummaryInformation Description="WebServiceAlerter - Monitor de webservices" Manufacturer="SDigitales" />
+
+    <!-- afterInstallInitialize desinstala la versión anterior (incluido detener y quitar su
+         servicio) antes de copiar los archivos nuevos, que es lo que permite correr `msiexec /i`
+         directamente como actualización sin desinstalar a mano primero. -->
+    <MajorUpgrade DowngradeErrorMessage="Ya hay instalada una versión más nueva de WebServiceAlerter."
+                  Schedule="afterInstallInitialize" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Ruta fija y predecible: simplifica el soporte remoto sobre un parque de equipos ajenos. -->
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="WebServiceAlerter">
+        <Directory Id="VIEWERFOLDER" Name="Viewer" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- El acceso directo va en su propio componente con una clave de registro como KeyPath, que
+         es la regla de autoría de MSI para accesos directos (ICE43/57). Mezclar archivo y
+         acceso directo en un mismo componente es lo que deja el ícono en blanco. -->
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="ViewerDesktopShortcut" Guid="A4F8B217-3D96-4E52-BC71-0F6A9E5D3B84">
+        <Shortcut Id="ViewerDesktopShortcutFile"
+                  Name="WebServiceAlerter"
+                  Description="Ver el estado de los webservices monitoreados"
+                  Target="[#ViewerExe]"
+                  WorkingDirectory="VIEWERFOLDER" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\SDigitales\WebServiceAlerter"
+                       Name="ViewerShortcutInstalled"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="ViewerStartMenuShortcut" Guid="C93E7A05-8B14-4D6F-A2E8-1C7B4F903D62">
+        <Shortcut Id="ViewerStartMenuShortcutFile"
+                  Name="WebServiceAlerter"
+                  Description="Ver el estado de los webservices monitoreados"
+                  Target="[#ViewerExe]"
+                  WorkingDirectory="VIEWERFOLDER" />
+        <RegistryValue Root="HKCU"
+                       Key="Software\SDigitales\WebServiceAlerter"
+                       Name="StartMenuShortcutInstalled"
+                       Type="integer"
+                       Value="1"
+                       KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+
+      <Component Id="MainExecutable" Guid="1B6D9F42-7A38-4C05-8E93-D2F471A0C6B5">
+        <File Id="WebServiceAlerterExe" Source="$(var.PublishDir)\WebServiceAlerter.exe" KeyPath="yes" />
+
+        <ServiceInstall Id="WebServiceAlerterServiceInstall"
+                        Name="WebServiceAlerter"
+                        DisplayName="WebServiceAlerter - Monitor de webservices"
+                        Description="Monitorea disponibilidad y latencia de webservices (ARCA y otros) y avisa por mail cuando se caen y cuando se recuperan."
+                        Type="ownProcess"
+                        Start="auto"
+                        ErrorControl="normal"
+                        Account="LocalSystem" />
+
+        <!-- Arranque automático retrasado: no compite con el resto del arranque de Windows, y un
+             monitor que empieza treinta segundos más tarde no le hace daño a nadie. La tabla
+             ServiceInstall no lo contempla, así que se escribe el valor que lee el SCM. -->
+        <RegistryValue Root="HKLM"
+                       Key="SYSTEM\CurrentControlSet\Services\WebServiceAlerter"
+                       Name="DelayedAutostart"
+                       Type="integer"
+                       Value="1" />
+
+        <!-- Reintentos ante caída del proceso: un monitor que se muere en silencio es peor que no
+             tener monitor, porque el usuario cree que lo está cuidando. -->
+        <util:ServiceConfig ServiceName="WebServiceAlerter"
+                            FirstFailureActionType="restart"
+                            SecondFailureActionType="restart"
+                            ThirdFailureActionType="restart"
+                            RestartServiceDelayInSeconds="30"
+                            ResetPeriodInDays="1" />
+
+        <ServiceControl Id="WebServiceAlerterServiceControl"
+                        Name="WebServiceAlerter"
+                        Start="install"
+                        Stop="both"
+                        Remove="uninstall"
+                        Wait="yes" />
+      </Component>
+
+      <Component Id="ViewerExecutable" Guid="6F2A8C74-9E51-4B3D-A07C-8B5E1D9F4A23" Directory="VIEWERFOLDER">
+        <File Id="ViewerExe" Source="$(var.ViewerPublishDir)\WebServiceAlerterViewer.exe" KeyPath="yes" />
+      </Component>
+
+    </ComponentGroup>
+
+    <!-- Las dos aplicaciones se publican autocontenidas y sin single-file, así que arrastran
+         varios cientos de DLLs. Se recogen en bloque en vez de escribir un componente por
+         archivo a mano. -->
+    <ComponentGroup Id="ServiceSupportFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.PublishDir)\**">
+        <Exclude Files="$(var.PublishDir)\WebServiceAlerter.exe" />
+      </Files>
+    </ComponentGroup>
+
+    <ComponentGroup Id="ViewerSupportFiles" Directory="VIEWERFOLDER">
+      <Files Include="$(var.ViewerPublishDir)\**">
+        <Exclude Files="$(var.ViewerPublishDir)\WebServiceAlerterViewer.exe" />
+      </Files>
+    </ComponentGroup>
+
+    <Feature Id="Main" Title="WebServiceAlerter" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+      <ComponentGroupRef Id="ServiceSupportFiles" />
+      <ComponentGroupRef Id="ViewerSupportFiles" />
+      <ComponentRef Id="ViewerDesktopShortcut" />
+      <ComponentRef Id="ViewerStartMenuShortcut" />
+    </Feature>
+
+    <!-- Seguro adicional sobre el Stop de ServiceControl: matar el proceso justo antes de copiar
+         archivos, por si el SCM informa "detenido" mientras algo (típicamente el antivirus
+         escaneando el exe recién escrito) todavía retiene el handle. Return="ignore" para que
+         nunca haga fallar una instalación limpia, donde el proceso ni siquiera existía. -->
+    <CustomAction Id="ForceStopWebServiceAlerter"
+                  Directory="SystemFolder"
+                  ExeCommand="taskkill.exe /F /IM WebServiceAlerter.exe"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <CustomAction Id="ForceStopViewer"
+                  Directory="SystemFolder"
+                  ExeCommand="taskkill.exe /F /IM WebServiceAlerterViewer.exe"
+                  Execute="deferred"
+                  Impersonate="no"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="ForceStopWebServiceAlerter" Before="InstallFiles" />
+      <Custom Action="ForceStopViewer" After="ForceStopWebServiceAlerter" />
+    </InstallExecuteSequence>
+
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+    <ui:WixUI Id="WixUI_Minimal" />
+
+  </Package>
+</Wix>

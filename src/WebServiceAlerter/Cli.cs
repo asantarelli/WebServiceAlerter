@@ -28,13 +28,36 @@ internal static class Cli
             return 1;
         }
 
-        Console.WriteLine();
-        Console.WriteLine("Pegá esto en Smtp:ProtectedPassword de appsettings.json:");
-        Console.WriteLine();
-        Console.WriteLine(PasswordProtector.Protect(password));
-        Console.WriteLine();
-        Console.WriteLine("Recordá que el blob sólo sirve en ESTA máquina: hay que regenerarlo en cada equipo.");
-        return 0;
+        var blob = PasswordProtector.Protect(password);
+        var destino = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "WebServiceAlerter",
+            "smtp.json");
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destino)!);
+            File.WriteAllText(destino,
+                "{\r\n  \"Smtp\": {\r\n    \"ProtectedPassword\": \"" + blob + "\"\r\n  }\r\n}\r\n");
+
+            Console.WriteLine();
+            Console.WriteLine($"Contraseña cifrada y guardada en:  {destino}");
+            Console.WriteLine();
+            Console.WriteLine("Ese archivo no lo toca el instalador, así que sobrevive a las actualizaciones.");
+            Console.WriteLine("El blob sólo sirve en ESTA máquina: hay que generarlo una vez por equipo.");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            // Si no se pudo escribir (permisos, disco), al menos se muestra para pegarlo a mano.
+            Console.WriteLine();
+            Console.WriteLine($"No pude escribir {destino}: {ex.Message}");
+            Console.WriteLine();
+            Console.WriteLine("Pegá esto a mano en Smtp:ProtectedPassword:");
+            Console.WriteLine();
+            Console.WriteLine(blob);
+            return 1;
+        }
 
         static string Prompt()
         {

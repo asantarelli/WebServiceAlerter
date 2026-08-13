@@ -17,13 +17,17 @@ namespace WebServiceAlerter.Alerting;
 public sealed class AlertDispatcher
 {
     private readonly IAlertSender _sender;
-    private readonly IOptions<GeneralOptions> _general;
+
+    /// <summary>Monitor y no snapshot: el nombre del equipo se edita desde la pantalla de
+    /// configuración y tiene que aparecer en la alerta siguiente, sin reiniciar nada.</summary>
+    private readonly IOptionsMonitor<GeneralOptions> _general;
+
     private readonly IOptionsMonitor<AlertingOptions> _alerting;
     private readonly ILogger<AlertDispatcher> _logger;
 
     public AlertDispatcher(
         IAlertSender sender,
-        IOptions<GeneralOptions> general,
+        IOptionsMonitor<GeneralOptions> general,
         IOptionsMonitor<AlertingOptions> alerting,
         ILogger<AlertDispatcher> logger)
     {
@@ -56,7 +60,7 @@ public sealed class AlertDispatcher
 
     private AlertMessage Build(TransitionKind kind, IReadOnlyList<Transition> transitions)
     {
-        var site = _general.Value.SiteName;
+        var site = _general.CurrentValue.SiteName;
         var sitePrefix = string.IsNullOrWhiteSpace(site) ? "" : $"[{site}] ";
 
         var names = string.Join(", ", transitions.Select(t => t.Endpoint.Name));

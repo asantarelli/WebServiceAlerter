@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using WebServiceAlerter.Configuration;
 using WebServiceAlerter.Probes;
 
@@ -48,18 +49,26 @@ public sealed record Transition(
 public sealed class EndpointTracker
 {
     private readonly ResolvedEndpoint _endpoint;
-    private readonly MonitoringOptions _options;
+
+    /// <summary>
+    /// Los umbrales se leen en cada decisión y no se copian al construir: son de los pocos
+    /// parámetros que el cliente puede tocar desde la pantalla de configuración, y no puede
+    /// reiniciar un servicio de Windows para que tengan efecto.
+    /// </summary>
+    private readonly IOptionsMonitor<MonitoringOptions> _options;
 
     private int _consecutiveFailures;
     private int _consecutiveSuccesses;
     private DateTimeOffset? _downSince;
     private DateTimeOffset? _lastReminderAt;
 
-    public EndpointTracker(ResolvedEndpoint endpoint, MonitoringOptions options)
+    public EndpointTracker(ResolvedEndpoint endpoint, IOptionsMonitor<MonitoringOptions> options)
     {
         _endpoint = endpoint;
         _options = options;
     }
+
+    private MonitoringOptions Options => _options.CurrentValue;
 
     public EndpointState State { get; private set; } = EndpointState.Unknown;
 
@@ -106,7 +115,7 @@ public sealed class EndpointTracker
 
         if (wasDown)
         {
-            if (_consecutiveSuccesses < _options.SuccessesToRecover)
+            if (_consecutiveSuccesses < Options.SuccessesToRecover)
             {
                 // Not confirmed yet: hold the down state so a single lucky response does not
                 // announce a recovery that is not real.
@@ -135,7 +144,7 @@ public sealed class EndpointTracker
         if (State == EndpointState.Down)
         {
             if (_lastReminderAt is { } last &&
-                now - last >= TimeSpan.FromMinutes(_options.ReminderIntervalMinutes))
+                now - last >= TimeSpan.FromMinutes(Options.ReminderIntervalMinutes))
             {
                 _lastReminderAt = now;
                 return new Transition(TransitionKind.StillDown, _endpoint, result, _downSince,
@@ -145,7 +154,7 @@ public sealed class EndpointTracker
             return new Transition(TransitionKind.None, _endpoint, result, _downSince, null);
         }
 
-        if (_consecutiveFailures < _options.FailuresToAlert)
+        if (_consecutiveFailures < Options.FailuresToAlert)
         {
             // Still a blip as far as we know. Nothing is announced until it has failed on its own
             // several times in a row.

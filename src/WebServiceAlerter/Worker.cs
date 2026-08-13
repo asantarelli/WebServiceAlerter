@@ -22,7 +22,7 @@ public sealed class Worker : BackgroundService
     private readonly AlertDispatcher _dispatcher;
     private readonly DataRecorder _recorder;
     private readonly StatusWriter _statusWriter;
-    private readonly MonitoringOptions _monitoring;
+    private readonly IOptionsMonitor<MonitoringOptions> _monitoringOptions;
     private readonly ILogger<Worker> _logger;
 
     private readonly Dictionary<string, EndpointTracker> _trackers = new(StringComparer.OrdinalIgnoreCase);
@@ -45,7 +45,7 @@ public sealed class Worker : BackgroundService
         AlertDispatcher dispatcher,
         DataRecorder recorder,
         StatusWriter statusWriter,
-        IOptions<MonitoringOptions> monitoring,
+        IOptionsMonitor<MonitoringOptions> monitoring,
         ILogger<Worker> logger)
     {
         _runner = runner;
@@ -53,7 +53,7 @@ public sealed class Worker : BackgroundService
         _dispatcher = dispatcher;
         _recorder = recorder;
         _statusWriter = statusWriter;
-        _monitoring = monitoring.Value;
+        _monitoringOptions = monitoring;
         _logger = logger;
     }
 
@@ -69,7 +69,7 @@ public sealed class Worker : BackgroundService
 
         foreach (var endpoint in _endpoints)
         {
-            _trackers[endpoint.Id] = new EndpointTracker(endpoint, _monitoring);
+            _trackers[endpoint.Id] = new EndpointTracker(endpoint, _monitoringOptions);
             _nextDue[endpoint.Id] = DateTimeOffset.UtcNow;
             _logger.LogInformation(
                 "Monitoreando {Name} ({Type}) cada {Interval}s — {Url}",
@@ -214,7 +214,7 @@ public sealed class Worker : BackgroundService
     /// </summary>
     private double NextInterval(ResolvedEndpoint endpoint)
     {
-        var jitter = Math.Clamp(_monitoring.JitterPercent, 0, 90) / 100.0;
+        var jitter = Math.Clamp(_monitoringOptions.CurrentValue.JitterPercent, 0, 90) / 100.0;
         if (jitter <= 0)
         {
             return endpoint.IntervalSeconds;

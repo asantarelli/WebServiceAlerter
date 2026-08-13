@@ -42,6 +42,13 @@ builder.Configuration
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
     .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false)
     .AddJsonFile("profiles.json", optional: false, reloadOnChange: false)
+
+    // La contraseña cifrada vive fuera del directorio de instalación, en un archivo propio que el
+    // instalador no maneja. Si viviera en appsettings.json, cada actualización lo sobrescribiría
+    // y dejaría al cliente sin poder enviar alertas — y como el blob DPAPI está atado a la
+    // máquina, tampoco puede venir dentro del paquete: se genera una vez por equipo.
+    .AddJsonFile(new PhysicalFileProvider(programData), "smtp.json", optional: true, reloadOnChange: true)
+
     .AddJsonFile(new PhysicalFileProvider(programData), "usersettings.json", optional: true, reloadOnChange: true)
     .AddEnvironmentVariables();
 

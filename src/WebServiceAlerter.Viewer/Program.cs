@@ -9,6 +9,10 @@ var dataDirectory = Path.Combine(
 
 var statusPath = args.Length > 0 ? args[0] : Path.Combine(dataDirectory, "status.json");
 var databasePath = args.Length > 1 ? args[1] : Path.Combine(dataDirectory, "webservicealerter.db");
+var settingsPath = Path.Combine(dataDirectory, "usersettings.json");
 
 ApplicationConfiguration.Initialize();
-Application.Run(new MainForm(new StatusReader(statusPath), new HistoryReader(databasePath)));
+Application.Run(new MainForm(
+    new StatusReader(statusPath),
+    new HistoryReader(databasePath),
+    new UserSettingsStore(settingsPath)));

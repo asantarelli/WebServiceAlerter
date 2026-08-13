@@ -18,6 +18,7 @@ public sealed class MainForm : Form
 
     private readonly StatusReader _status;
     private readonly HistoryReader _history;
+    private readonly UserSettingsStore _settings;
 
     private readonly Label _summaryLabel;
     private readonly Label _updatedLabel;
@@ -35,10 +36,11 @@ public sealed class MainForm : Form
     private DisplayState _lastOverall = DisplayState.Unknown;
     private bool _reallyClosing;
 
-    public MainForm(StatusReader status, HistoryReader history)
+    public MainForm(StatusReader status, HistoryReader history, UserSettingsStore settings)
     {
         _status = status;
         _history = history;
+        _settings = settings;
 
         Text = "WebServiceAlerter";
         Width = 1060;
@@ -75,8 +77,20 @@ public sealed class MainForm : Form
             Text = "",
         };
 
+        var settingsButton = new Button
+        {
+            Text = "Configuración",
+            Width = 130,
+            Height = 30,
+            Top = 20,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+        };
+        settingsButton.Left = header.Width - settingsButton.Width - 20;
+        settingsButton.Click += (_, _) => OpenSettings();
+
         header.Controls.Add(_summaryLabel);
         header.Controls.Add(_updatedLabel);
+        header.Controls.Add(settingsButton);
 
         // ---- Semáforo ----------------------------------------------------------------------
         _cardsHost = new Panel { Dock = DockStyle.Top, Height = 10, BackColor = Color.White, AutoScroll = false };
@@ -191,6 +205,18 @@ public sealed class MainForm : Form
 
         _tray.Visible = false;
         base.OnFormClosing(e);
+    }
+
+    private void OpenSettings()
+    {
+        using var form = new SettingsForm(_settings);
+
+        if (form.ShowDialog(this) == DialogResult.OK)
+        {
+            // El servicio vigila el archivo y lo relee solo; se refresca la pantalla para que el
+            // nombre nuevo aparezca sin esperar al próximo tick.
+            RefreshStatus();
+        }
     }
 
     private void RestoreFromTray()
@@ -327,6 +353,29 @@ public sealed class MainForm : Form
         bool BelongsToIncident(DateTime at) =>
             incidents.Any(i => at >= i.StartedAt.AddSeconds(-1) && at <= (i.ResolvedAt ?? DateTime.Now).AddSeconds(1));
 
+        // Los incidentes se dibujan como una banda que cubre toda su duración, no como una marca
+        // puntual: lo que importa de una caída es cuánto duró, y una raya de un píxel no lo dice.
+        // Se les da un ancho mínimo para que un corte de 30 segundos no quede invisible dentro de
+        // una ventana de 24 horas.
+        foreach (var incident in incidents)
+        {
+            var desde = incident.StartedAt;
+            var hasta = incident.ResolvedAt ?? DateTime.Now;
+
+            var minimo = TimeSpan.FromMinutes(3);
+            if (hasta - desde < minimo)
+            {
+                var centro = desde + (hasta - desde) / 2;
+                desde = centro - minimo / 2;
+                hasta = centro + minimo / 2;
+            }
+
+            var banda = plot.Add.HorizontalSpan(desde.ToOADate(), hasta.ToOADate());
+            banda.FillColor = new ScottPlot.Color(239, 68, 68).WithAlpha(0.22);
+            banda.LineColor = new ScottPlot.Color(239, 68, 68).WithAlpha(0.55);
+            banda.LineWidth = 1;
+        }
+
         foreach (var point in points)
         {
             var isFailure = point.LatencyMs is null ||
@@ -335,29 +384,29 @@ public sealed class MainForm : Form
                              point.Outcome != HistoryReader.OutcomeNotVerifiable);
 
             ScottPlot.Color color;
-            double width;
+            float width;
 
             if (isFailure)
             {
                 // Rojo si fue parte de un incidente confirmado; naranja si fue un fallo suelto.
                 color = BelongsToIncident(point.At)
-                    ? new ScottPlot.Color(239, 68, 68).WithAlpha(0.85)
-                    : new ScottPlot.Color(234, 88, 12).WithAlpha(0.60);
-                width = 1.5;
+                    ? new ScottPlot.Color(220, 38, 38).WithAlpha(0.90)
+                    : new ScottPlot.Color(234, 88, 12).WithAlpha(0.85);
+                width = 5;
             }
             else if (point.Outcome == HistoryReader.OutcomeSlow)
             {
-                color = new ScottPlot.Color(245, 158, 11).WithAlpha(0.45);
-                width = 1;
+                color = new ScottPlot.Color(245, 158, 11).WithAlpha(0.75);
+                width = 4;
             }
             else
             {
                 continue;
             }
 
-            var line = plot.Add.VerticalLine(point.At.ToOADate());
-            line.Color = color;
-            line.LineWidth = (float)width;
+            var barra = plot.Add.VerticalLine(point.At.ToOADate());
+            barra.Color = color;
+            barra.LineWidth = width;
         }
 
         // La serie se dibuja al final para que quede por encima de las marcas de evento.
