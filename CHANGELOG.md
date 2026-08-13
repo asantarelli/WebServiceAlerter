@@ -2,6 +2,50 @@
 
 Este proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
+## [0.2.1] — 2026-08-13
+
+### Instalador
+
+- **Instalador MSI** con el servicio, el Viewer y los accesos directos. Se instala encima de una
+  versión anterior sin desinstalar primero.
+- La contraseña SMTP pasa de `appsettings.json` a `smtp.json` bajo `%ProgramData%`. El MSI
+  sobrescribe `appsettings.json` en cada actualización —es deliberado, así una versión nueva puede
+  corregir una URL o sumar un perfil— pero eso habría borrado el blob DPAPI en cada upgrade,
+  dejando al cliente sin poder enviar alertas.
+- Se usa WiX 5 y no 7: la 7 exige adherir al *Open Source Maintenance Fee*, que para uso comercial
+  implica pagar. Viene fijada como herramienta local del repo.
+
+### Configuración
+
+- **Pantalla de configuración** en el Viewer: nombre del equipo, destinatarios, intervalo entre
+  chequeos y sensibilidad de las alertas, con mail de prueba y validación de direcciones.
+- **El servicio relee la configuración en caliente**, incluidos los endpoints: se pueden agregar,
+  quitar o reconfigurar sin reiniciar. Un endpoint cuya definición no cambió conserva su estado,
+  para que releer no borre una caída en curso ni dispare un falso aviso de recuperación.
+
+### Gráfico
+
+- La serie se corta en los períodos sin muestras, que se marcan en gris. Antes unía el último
+  punto antes de apagar el equipo con el primero de la mañana siguiente, dibujando una rampa que
+  parecía latencia creciendo durante la noche.
+- Los chequeos fallidos se grafican como 0 en lugar del tiempo que tardaron en vencer el timeout:
+  ese número es el timeout configurado, no una medición.
+- El eje se recorta a un límite robusto cuando hay picos extremos, aclarándolo en la leyenda. Con
+  mediana de 88 ms y máximas cercanas a 10.000, el eje se iba a la escala del pico y aplastaba
+  contra el piso el rango donde el servicio vive el 95 % del tiempo.
+- Los incidentes confirmados se dibujan como una banda que cubre toda su duración; el resto de los
+  eventos, como barras de color por severidad.
+
+### Herramientas
+
+- `--history` suma percentiles de latencia (mediana, p95, p99 y máxima).
+
+### Limitaciones conocidas
+
+- **Una instalación nueva no puede enviar mail hasta configurar SMTP.** El MSI instala
+  `appsettings.json` con la sección `Smtp` vacía, y `--protect-password` sólo guarda la
+  contraseña; el servidor, el usuario y la dirección de envío todavía hay que cargarlos a mano.
+
 ## [0.1.0] — 2026-08-12
 
 Primera versión. El servicio de monitoreo y el Viewer funcionan y están verificados contra ARCA
