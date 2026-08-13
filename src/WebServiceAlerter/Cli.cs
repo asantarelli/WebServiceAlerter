@@ -272,6 +272,16 @@ internal static class Cli
             var uptime = verifiable == 0 ? "sin datos verificables" : $"{(double)up / verifiable:P2}";
             Console.WriteLine($"    {total} chequeos — disponibilidad {uptime}");
 
+            var latencias = recorder.GetLatencies(group.Key, from);
+            if (latencias.Count > 0)
+            {
+                double Percentil(double p) => latencias[Math.Min(latencias.Count - 1, (int)(latencias.Count * p))];
+
+                Console.WriteLine(
+                    $"    latencia — mediana {Percentil(0.50):F0} ms · p95 {Percentil(0.95):F0} ms · " +
+                    $"p99 {Percentil(0.99):F0} ms · máxima {latencias[^1]:F0} ms");
+            }
+
             foreach (var (_, outcome, count) in group.OrderByDescending(g => g.Count))
             {
                 var color = outcome.IsUp() ? ConsoleColor.Green

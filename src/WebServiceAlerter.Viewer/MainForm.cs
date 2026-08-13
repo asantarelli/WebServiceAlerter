@@ -23,7 +23,11 @@ public sealed class MainForm : Form
     private readonly Label _summaryLabel;
     private readonly Label _updatedLabel;
     private readonly Panel _cardsHost;
+    private const string LegendBase =
+        "Marcas:   amarillo = respuesta lenta      naranja = fallo aislado      rojo = incidente confirmado      gris = sin datos";
+
     private readonly FormsPlot _plot;
+    private readonly Label _chartLegend;
     private readonly ListView _incidents;
     private readonly NotifyIcon _tray;
     private readonly System.Windows.Forms.Timer _statusTimer;
@@ -139,18 +143,18 @@ public sealed class MainForm : Form
 
         // Leyenda como texto y no como leyenda del gráfico: son marcas verticales, no series, y
         // explicarlas en una línea evita robarle espacio al gráfico.
-        var chartLegend = new Label
+        _chartLegend = new Label
         {
             Dock = DockStyle.Top,
             Height = 18,
-            Text = "Marcas:   amarillo = respuesta lenta      naranja = fallo aislado      rojo = incidente confirmado      gris = sin datos (monitor detenido)",
+            Text = LegendBase,
             Font = new Font(Font.FontFamily, 8.25f),
             ForeColor = Color.FromArgb(107, 114, 128),
         };
 
         _plot = new FormsPlot { Dock = DockStyle.Fill };
         chartPanel.Controls.Add(_plot);
-        chartPanel.Controls.Add(chartLegend);
+        chartPanel.Controls.Add(_chartLegend);
         chartPanel.Controls.Add(chartTitle);
 
         Controls.Add(chartPanel);
@@ -448,6 +452,35 @@ public sealed class MainForm : Form
         plot.Axes.DateTimeTicksBottom();
         plot.YLabel("milisegundos");
         plot.Axes.AutoScale();
+
+        // Un puñado de respuestas lentísimas fija sola la escala y aplasta contra el piso el
+        // rango en el que el servicio vive el 95 % del tiempo: con mediana de 88 ms y una máxima
+        // de 9.669, el eje llega a 10.000 y la variación normal se ve como una raya. Se recorta
+        // el eje a un límite robusto y los picos se cortan arriba, donde igual quedan señalados
+        // por las marcas de color. La alternativa —escala logarítmica— es más fiel pero mucho
+        // menos legible para quien sólo quiere saber si puede facturar.
+        var medidas = points
+            .Where(p => p.LatencyMs is not null && p.Outcome is HistoryReader.OutcomeOk or HistoryReader.OutcomeSlow)
+            .Select(p => p.LatencyMs!.Value)
+            .OrderBy(v => v)
+            .ToList();
+
+        if (medidas.Count > 4)
+        {
+            var p95 = medidas[Math.Min(medidas.Count - 1, (int)(medidas.Count * 0.95))];
+            var techo = Math.Max(p95 * 1.5, 250);
+
+            if (medidas[^1] > techo)
+            {
+                plot.Axes.SetLimitsY(0, techo);
+                _chartLegend.Text = $"{LegendBase}      escala recortada a {techo:F0} ms — hubo picos de hasta {medidas[^1]:F0} ms";
+            }
+            else
+            {
+                _chartLegend.Text = LegendBase;
+            }
+        }
+
         _plot.Refresh();
     }
 

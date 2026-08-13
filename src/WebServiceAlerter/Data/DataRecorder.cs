@@ -271,6 +271,32 @@ public sealed class DataRecorder : IDisposable
         return result;
     }
 
+    /// <summary>
+    /// Latencias de las respuestas correctas, ordenadas. Sirve para responder "¿cuán lento es
+    /// lento?" con números en vez de con impresiones: un puñado de respuestas de varios segundos
+    /// cambia por completo cómo hay que escalar un gráfico.
+    /// </summary>
+    public IReadOnlyList<double> GetLatencies(string endpointId, DateTimeOffset from)
+    {
+        var result = new List<double>();
+
+        Query($"""
+            SELECT LatencyMs FROM Samples
+            WHERE EndpointId = $id AND Timestamp >= $from AND LatencyMs IS NOT NULL
+              AND Outcome IN ({(int)ProbeOutcome.Ok}, {(int)ProbeOutcome.Slow})
+            ORDER BY LatencyMs
+            """,
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", endpointId);
+                cmd.Parameters.AddWithValue("$from", from.ToUnixTimeSeconds());
+            },
+            reader => result.Add(reader.GetDouble(0)),
+            "No pude leer las latencias.");
+
+        return result;
+    }
+
     private void Query(string sql, Action<SqliteCommand> bind, Action<SqliteDataReader> read, string errorMessage)
     {
         if (_connection is null)
