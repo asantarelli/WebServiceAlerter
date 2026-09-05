@@ -33,7 +33,7 @@ para cualquier otro servicio (bancos, pasarelas de pago, APIs propias).
 |---|---|
 | Despliegue | **Servicio Windows + Viewer** (mismo patrón que ResourceAlerter), **una instalación por cliente** |
 | Destinatario de alertas | **Solo el cliente**, lista de mails editable por él |
-| Canales | **Solo SMTP.** Discord queda afuera (ningún cliente lo usa) |
+| Canales | **SMTP** al cliente + **Discord opcional** a un canal compartido entre desarrolladores (ver §7.3). La idea original de Discord —avisarle al cliente— sigue descartada: ningún cliente lo usa |
 | Cuenta SMTP | **Fija, de un dominio de SDigitales**, no editable por el cliente — ver §7.1 |
 | Configuración | **Dos capas**: `appsettings.json` (SDigitales, se sobrescribe al actualizar) + `usersettings.json` (cliente, nunca se toca) |
 | Recarga de configuración | **En caliente, sin reiniciar el servicio** (el cliente no tiene elevación) |
@@ -339,6 +339,42 @@ que lean los mails de alerta: es que **alguien mande correo haciéndose pasar po
 > descifrarla. Sube el costo de casual a deliberado, y hace que el archivo por sí solo no valga
 > nada. Si algún día el riesgo residual molesta, el paso siguiente es una API key de envío
 > restringida (solo-enviar, solo ese dominio), que se revoca de a una sin tocar la casilla.
+
+### 7.3 Discord: vista común entre desarrolladores, con el cliente anonimizado
+
+Canal **opcional y de propósito distinto al del mail**. El mail le avisa al dueño del equipo;
+Discord arma una vista compartida entre varios desarrolladores del estado de los servicios en
+muchas instalaciones a la vez. Con eso, cuando ARCA se cae, se ve en el momento si le está pasando
+a todos o a uno solo.
+
+**La instalación se identifica por localidad e ISP, nunca por el cliente.** Cada desarrollador ve
+los eventos de servidores ajenos, y no corresponde que sepa de qué empresa es cada uno.
+
+Esa anonimización es **estructural, no una convención**: el aviso viaja sin redactar y cada canal
+lo escribe con su propia configuración. `DiscordAlertSender` no recibe `GeneralOptions`, así que
+no tiene forma de acceder al nombre de la instalación aunque alguien lo intente más adelante.
+Tampoco publica:
+
+- el **nombre del equipo**, que suele ser el de la empresa;
+- las **URLs monitoreadas**, que en un endpoint propio del cliente delatarían su dominio.
+
+Otras decisiones:
+
+- **Falla cerrado.** Sin identidad configurada no se publica nada. La alternativa —caer al nombre
+  de la instalación— es justamente lo que no puede pasar.
+- **Sólo acepta webhooks de `discord.com`.** Un error de tipeo no puede terminar mandando el
+  estado de los servidores de los clientes a un host cualquiera. La misma validación se aplica al
+  configurar y al enviar, para que nada se guarde como válido y después falle callado.
+- **La URL del webhook va cifrada con DPAPI**, en `discord.json` bajo ProgramData. Es un secreto
+  —quien la tenga puede escribir en el canal— y vive en equipos de clientes. Por lo mismo **no
+  puede viajar dentro del MSI**, que se publica abierto.
+- **Tope de mensajes por hora y respeto del 429.** El canal recibe eventos de muchas instalaciones
+  a la vez, así que toparse con el límite de Discord no es un caso raro: es lo esperable
+  justamente cuando se cae un servicio que todos monitorean.
+
+> **Límite de la anonimización, dicho explícitamente:** en una localidad chica con un solo cliente,
+> "Localidad — ISP" más el horario puede alcanzar para deducir de quién se trata. La identidad
+> protege del vistazo casual, no de alguien que quiera averiguarlo.
 
 ### 7.2 Sin cola de alertas offline
 

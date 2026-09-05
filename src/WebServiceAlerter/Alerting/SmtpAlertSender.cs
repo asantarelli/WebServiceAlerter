@@ -1,64 +1,74 @@
 using System.Net;
 using System.Net.Mail;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WebServiceAlerter.Configuration;
+using WebServiceAlerter.Monitoring;
+using WebServiceAlerter.Probes;
 using WebServiceAlerter.Security;
 
 namespace WebServiceAlerter.Alerting;
 
 /// <summary>
-/// Sends through the fixed SDigitales mailbox. The client owns the recipient list and nothing
-/// else — they never see or set the sending account.
+/// Avisa por mail al dueño del equipo. A diferencia de Discord, acá SÍ corresponde identificar la
+/// instalación por su nombre: el destinatario es quien la administra.
 /// </summary>
 public sealed class SmtpAlertSender : IAlertSender
 {
     private readonly SmtpOptions _smtp;
+    private readonly IOptionsMonitor<GeneralOptions> _general;
     private readonly IOptionsMonitor<AlertingOptions> _alerting;
     private readonly ILogger<SmtpAlertSender> _logger;
 
-    /// <summary>Timestamps of recent sends, for the hourly cap. A bug or a pathological flap must
-    /// not be able to burn the shared mailbox and get it blocked by the provider.</summary>
+    /// <summary>Marcas de tiempo de los últimos envíos, para el tope por hora. Un bug o un
+    /// endpoint inestable no pueden quemar la casilla compartida y hacer que el proveedor la
+    /// bloquee.</summary>
     private readonly Queue<DateTimeOffset> _recentSends = new();
     private readonly object _gate = new();
 
     public SmtpAlertSender(
         IOptions<SmtpOptions> smtp,
+        IOptionsMonitor<GeneralOptions> general,
         IOptionsMonitor<AlertingOptions> alerting,
         ILogger<SmtpAlertSender> logger)
     {
         _smtp = smtp.Value;
+        _general = general;
         _alerting = alerting;
         _logger = logger;
     }
 
-    public async Task<bool> SendAsync(AlertMessage message, CancellationToken cancellationToken)
+    public string Channel => "mail";
+
+    public async Task<bool> SendAsync(AlertEvent alert, CancellationToken cancellationToken)
     {
         var recipients = _alerting.CurrentValue.ParsedRecipients();
 
         if (!_smtp.IsConfigured)
         {
-            _logger.LogWarning("SMTP no configurado: la alerta «{Subject}» no se envió por mail.", message.Subject);
+            _logger.LogWarning("SMTP no configurado: «{Headline}» no se envió por mail.", alert.Headline);
             return false;
         }
 
         if (recipients.Count == 0)
         {
             _logger.LogWarning(
-                "No hay destinatarios configurados: la alerta «{Subject}» no se envió. " +
-                "Cargá Alerting:Recipients en usersettings.json.", message.Subject);
+                "No hay destinatarios configurados: «{Headline}» no se envió. " +
+                "Cargalos desde la pantalla de configuración.", alert.Headline);
             return false;
         }
 
         if (!TryReserveQuota())
         {
             _logger.LogError(
-                "Límite de {Max} mails por hora alcanzado; se descarta «{Subject}». " +
+                "Límite de {Max} mails por hora alcanzado; se descarta «{Headline}». " +
                 "Esto casi siempre indica un endpoint inestable o un error de configuración.",
-                _alerting.CurrentValue.MaxMailsPerHour, message.Subject);
+                _alerting.CurrentValue.MaxMailsPerHour, alert.Headline);
             return false;
         }
 
+        var (subject, body) = Render(alert);
         var password = ResolvePassword();
 
         for (var attempt = 1; attempt <= Math.Max(1, _smtp.RetryCount); attempt++)
@@ -78,8 +88,8 @@ public sealed class SmtpAlertSender : IAlertSender
                 using var mail = new MailMessage
                 {
                     From = new MailAddress(_smtp.FromAddress, _smtp.FromDisplayName),
-                    Subject = message.Subject,
-                    Body = message.Body,
+                    Subject = subject,
+                    Body = body,
                     IsBodyHtml = false,
                 };
 
@@ -89,7 +99,7 @@ public sealed class SmtpAlertSender : IAlertSender
                 }
 
                 await client.SendMailAsync(mail, cancellationToken);
-                _logger.LogInformation("Alerta enviada a {Count} destinatario(s): {Subject}", recipients.Count, message.Subject);
+                _logger.LogInformation("Alerta enviada a {Count} destinatario(s): {Subject}", recipients.Count, subject);
                 return true;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -103,8 +113,72 @@ public sealed class SmtpAlertSender : IAlertSender
             }
         }
 
-        _logger.LogError("No se pudo enviar la alerta «{Subject}» tras {Count} intentos.", message.Subject, _smtp.RetryCount);
+        _logger.LogError("No se pudo enviar «{Subject}» tras {Count} intentos.", subject, _smtp.RetryCount);
         return false;
+    }
+
+    private (string Subject, string Body) Render(AlertEvent alert)
+    {
+        var site = _general.CurrentValue.SiteName;
+        var prefijo = string.IsNullOrWhiteSpace(site) ? "" : $"[{site}] ";
+        var subject = $"{prefijo}{alert.KindLabel}: {alert.Headline}";
+
+        var body = new StringBuilder();
+
+        if (!string.IsNullOrWhiteSpace(site))
+        {
+            body.AppendLine($"Instalación: {site}");
+        }
+
+        body.AppendLine($"Equipo: {Environment.MachineName}");
+        body.AppendLine($"Fecha: {alert.At.ToLocalTime():yyyy-MM-dd HH:mm:ss zzz}");
+        body.AppendLine();
+
+        foreach (var transition in alert.Transitions)
+        {
+            body.AppendLine($"— {transition.Endpoint.Name}");
+            body.AppendLine($"  URL: {transition.Endpoint.Url}");
+            body.AppendLine($"  Estado: {alert.KindLabel}");
+            body.AppendLine($"  Motivo: {transition.Result.Outcome.ToSpanish()}");
+
+            if (!string.IsNullOrWhiteSpace(transition.Result.Detail))
+            {
+                body.AppendLine($"  Detalle: {transition.Result.Detail}");
+            }
+
+            if (transition.Result.LatencyMs is { } ms)
+            {
+                body.AppendLine($"  Latencia: {ms:F0} ms");
+            }
+
+            if (transition.DownSince is { } since)
+            {
+                body.AppendLine($"  Caído desde: {since.ToLocalTime():yyyy-MM-dd HH:mm:ss}");
+            }
+
+            if (transition.Duration is { } duration && alert.Kind != AlertKind.Down)
+            {
+                body.AppendLine($"  Duración: {AlertEvent.FormatDuration(duration)}");
+            }
+
+            body.AppendLine();
+        }
+
+        if (!string.IsNullOrWhiteSpace(alert.Note))
+        {
+            body.AppendLine(alert.Note);
+            body.AppendLine();
+        }
+
+        if (alert.Transitions.Count > 0)
+        {
+            // El veredicto que el destinatario realmente busca. Sin decirlo explícitamente, cada
+            // alerta termina igual en un llamado preguntando si es "nuestro o de ellos".
+            body.AppendLine("La conexión a internet de este equipo estaba funcionando cuando se detectó el problema,");
+            body.AppendLine("así que la falla es del servicio monitoreado y no de la red local.");
+        }
+
+        return (subject, body.ToString());
     }
 
     private string ResolvePassword()
@@ -119,7 +193,7 @@ public sealed class SmtpAlertSender : IAlertSender
 
             _logger.LogError(
                 "No pude descifrar Smtp:ProtectedPassword. El blob DPAPI está atado a la máquina " +
-                "que lo generó: si copiaste el appsettings.json de otro equipo, regeneralo con " +
+                "que lo generó: si copiaste la configuración de otro equipo, regeneralo con " +
                 "--protect-password.");
         }
 

@@ -70,6 +70,8 @@ Comandos disponibles:
 | `--history [horas]` | Qué registró el monitor en ese período: disponibilidad, incidentes y fallos sueltos. Es el comando para cuando alguien reporta "no pude facturar a las diez y cuarto". |
 | `--test-mail` | Manda un mail de prueba a los destinatarios configurados. |
 | `--protect-password` | Cifra la contraseña SMTP con DPAPI y la guarda en `%ProgramData%\WebServiceAlerter\smtp.json`. Una vez por equipo. |
+| `--configure-discord` | Configura el canal de Discord: identidad e URL del webhook, cifrada. Una vez por equipo. |
+| `--test-discord` | Publica un mensaje de prueba en Discord. |
 | *(sin argumentos)* | Corre el loop de monitoreo (consola, o como servicio de Windows). |
 
 ## Instalar
@@ -100,13 +102,14 @@ las actualizaciones no lo pisan.
 
 ## Configuración
 
-Tres archivos, separados por **dueño** y no por máquina:
+Cuatro archivos, separados por **dueño** y no por máquina:
 
 | Archivo | Dónde | Quién lo edita | En una actualización |
 |---|---|---|---|
 | `appsettings.json` | Junto al ejecutable | Quien distribuye | **Se sobrescribe** |
 | `usersettings.json` | `%ProgramData%\WebServiceAlerter\` | El cliente, desde la pantalla | **Nunca se toca** |
 | `smtp.json` | `%ProgramData%\WebServiceAlerter\` | Se genera con `--protect-password` | **Nunca se toca** |
+| `discord.json` | `%ProgramData%\WebServiceAlerter\` | Se genera con `--configure-discord` | **Nunca se toca** |
 
 Ese reparto es lo que hace que actualizar sea seguro: los valores por defecto y los perfiles se
 pueden corregir en una versión nueva sin pisar nada de lo que el cliente configuró, y sin dejarlo
@@ -138,6 +141,36 @@ Los endpoints son un diccionario y no una lista, a propósito: `IConfiguration` 
 ```
 
 Los archivos de configuración admiten comentarios `//`.
+
+## Discord: vista común entre desarrolladores
+
+Además del mail al cliente, el monitor puede publicar cada evento en un canal de Discord
+compartido. El propósito es distinto: el mail le avisa al dueño del equipo, mientras que Discord
+arma una vista del estado de los servicios en muchas instalaciones a la vez. Cuando ARCA se cae,
+ahí se ve en el momento si le está pasando a todos o a uno solo.
+
+```bash
+"C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe" --configure-discord
+```
+
+Pide dos cosas: la **identidad** de ese equipo en el canal y la **URL del webhook**.
+
+**La identidad es localidad e ISP, nunca el nombre del cliente** — por ejemplo
+`Rosario, Santa Fe — Telecom`. El canal lo ven varios desarrolladores y no corresponde que sepan
+de qué empresa es cada servidor.
+
+Eso no depende de acordarse de borrar campos: el aviso viaja sin redactar y cada canal lo escribe
+con su propia configuración, así que el sender de Discord **no tiene acceso** al nombre de la
+instalación. Tampoco publica el nombre del equipo (suele ser el de la empresa) ni las URLs
+monitoreadas (un endpoint propio del cliente delataría su dominio).
+
+> **Hasta dónde llega:** en una localidad chica con un solo cliente, la identidad más el horario
+> puede alcanzar para deducir de quién se trata. Protege del vistazo casual, no de alguien que
+> quiera averiguarlo.
+
+La URL del webhook se guarda cifrada con DPAPI en `discord.json`, porque es un secreto —quien la
+tenga puede escribir en el canal— y vive en equipos de clientes. Por lo mismo **no viaja dentro
+del instalador**, que se publica abierto.
 
 ## Seguridad — leer antes de distribuir
 

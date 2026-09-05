@@ -2,6 +2,33 @@
 
 Este proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
+## [0.3.0] — 2026-08-14
+
+### Discord
+
+- **Cada evento se puede publicar en un canal de Discord compartido**, además del mail al cliente.
+  El propósito es distinto: el mail avisa al dueño del equipo; Discord arma una vista del estado
+  de los servicios en muchas instalaciones a la vez, para ver si una caída le está pasando a todos
+  o a uno solo.
+- **La instalación se identifica por localidad e ISP, nunca por el cliente.** El canal lo ven
+  varios desarrolladores y no corresponde que sepan de qué empresa es cada servidor.
+- La anonimización es estructural: el aviso viaja sin redactar y cada canal lo escribe con su
+  propia configuración, así que el sender de Discord no recibe el nombre de la instalación y no
+  puede filtrarlo. Tampoco publica el nombre del equipo ni las URLs monitoreadas.
+- Sin identidad configurada no se publica nada, en vez de caer al nombre de la instalación.
+- Sólo se aceptan webhooks de `discord.com`, con la misma validación al configurar y al enviar.
+- La URL del webhook se guarda cifrada con DPAPI en `discord.json` bajo `%ProgramData%`: es un
+  secreto, vive en equipos de clientes y no puede viajar dentro del MSI, que se publica abierto.
+- Tope de mensajes por hora y respeto del `429` de Discord, que en un canal alimentado por muchas
+  instalaciones es lo esperable justo cuando se cae un servicio que todos monitorean.
+- Comandos nuevos: `--configure-discord` y `--test-discord`.
+
+### Interno
+
+- Los avisos pasan a viajar como evento estructurado (`AlertEvent`) en vez de texto ya armado, y
+  cada canal los redacta. Es lo que permite que dos canales usen identidades distintas sin que
+  mantenerlas separadas dependa de recordar borrar campos.
+
 ## [0.2.1] — 2026-08-13
 
 ### Instalador

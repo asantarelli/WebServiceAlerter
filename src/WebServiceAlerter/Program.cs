@@ -49,6 +49,11 @@ builder.Configuration
     // máquina, tampoco puede venir dentro del paquete: se genera una vez por equipo.
     .AddJsonFile(new PhysicalFileProvider(programData), "smtp.json", optional: true, reloadOnChange: true)
 
+    // Ídem para Discord: la URL del webhook es un secreto —quien la tenga puede escribir en el
+    // canal compartido— y el instalador se publica abierto, así que no puede viajar dentro del
+    // MSI. Además la identidad (localidad e ISP) es distinta en cada instalación.
+    .AddJsonFile(new PhysicalFileProvider(programData), "discord.json", optional: true, reloadOnChange: true)
+
     .AddJsonFile(new PhysicalFileProvider(programData), "usersettings.json", optional: true, reloadOnChange: true)
     .AddEnvironmentVariables();
 
@@ -58,6 +63,7 @@ builder.Services.Configure<GeneralOptions>(builder.Configuration.GetSection(Gene
 builder.Services.Configure<MonitoringOptions>(builder.Configuration.GetSection(MonitoringOptions.SectionName));
 builder.Services.Configure<AlertingOptions>(builder.Configuration.GetSection(AlertingOptions.SectionName));
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+builder.Services.Configure<DiscordOptions>(builder.Configuration.GetSection(DiscordOptions.SectionName));
 builder.Services.Configure<HttpOptions>(builder.Configuration.GetSection(HttpOptions.SectionName));
 builder.Services.Configure<DatabaseOptions>(builder.Configuration.GetSection(DatabaseOptions.SectionName));
 builder.Services.Configure<StatusFileOptions>(builder.Configuration.GetSection(StatusFileOptions.SectionName));
@@ -75,7 +81,16 @@ builder.Services.AddSingleton<IProbe, TcpProbe>();
 builder.Services.AddSingleton<ProbeRunner>();
 
 builder.Services.AddSingleton<WebServiceAlerter.Monitoring.CanaryChecker>();
-builder.Services.AddSingleton<IAlertSender, SmtpAlertSender>();
+
+// Los canales se registran por su tipo concreto y el compuesto se arma explícitamente: si todos
+// se registraran como IAlertSender, inyectar IAlertSender sería ambiguo y el compuesto terminaría
+// recibiéndose a sí mismo.
+builder.Services.AddSingleton<SmtpAlertSender>();
+builder.Services.AddSingleton<DiscordAlertSender>();
+builder.Services.AddSingleton<IAlertSender>(sp => new CompositeAlertSender(
+    [sp.GetRequiredService<SmtpAlertSender>(), sp.GetRequiredService<DiscordAlertSender>()],
+    sp.GetRequiredService<ILogger<CompositeAlertSender>>()));
+
 builder.Services.AddSingleton<AlertDispatcher>();
 builder.Services.AddSingleton<DataRecorder>();
 builder.Services.AddSingleton<StatusWriter>();
@@ -91,7 +106,9 @@ if (interactive)
 }
 
 // One-shot commands need the container but not the hosted service.
-var oneShot = args.Any(a => a is "--once" or "--list" or "--test" or "--test-mail" or "--history");
+var oneShot = args.Any(a =>
+    a is "--once" or "--list" or "--test" or "--test-mail" or "--history"
+      or "--test-discord" or "--configure-discord");
 if (!oneShot)
 {
     builder.Services.AddHostedService<Worker>();

@@ -156,6 +156,43 @@ public sealed class SmtpOptions
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Host) && !string.IsNullOrWhiteSpace(FromAddress);
 }
 
+/// <summary>
+/// Canal opcional hacia un Discord compartido entre desarrolladores, donde se ve el estado de los
+/// servicios en todas las instalaciones a la vez.
+///
+/// Se identifica por <see cref="Identity"/> —localidad e ISP— y NO por el nombre del cliente: el
+/// canal es común a varios desarrolladores y nadie tiene por qué saber de quién es cada servidor.
+/// Vive en discord.json bajo ProgramData y no en appsettings.json porque el instalador se publica
+/// abierto: una URL de webhook dentro del MSI sería una invitación a que cualquiera escriba en ese
+/// canal.
+/// </summary>
+public sealed class DiscordOptions
+{
+    public const string SectionName = "Discord";
+
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    /// Blob DPAPI (LocalMachine) de la URL del webhook, en Base64. La URL es un secreto: quien la
+    /// tenga puede escribir en el canal, y este archivo vive en equipos de clientes. Se genera con
+    /// --configure-discord.
+    /// </summary>
+    public string ProtectedWebhookUrl { get; set; } = "";
+
+    /// <summary>Alternativa en texto plano, sólo para desarrollo.</summary>
+    public string WebhookUrl { get; set; } = "";
+
+    /// <summary>Cómo se identifica esta instalación en el canal común: "Rosario — Telecom".</summary>
+    public string Identity { get; set; } = "";
+
+    public int MaxMessagesPerHour { get; set; } = 20;
+
+    public bool HasWebhook =>
+        !string.IsNullOrWhiteSpace(ProtectedWebhookUrl) || !string.IsNullOrWhiteSpace(WebhookUrl);
+
+    public bool IsConfigured => Enabled && HasWebhook && !string.IsNullOrWhiteSpace(Identity);
+}
+
 public sealed class HttpOptions
 {
     public const string SectionName = "Http";

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using WebServiceAlerter.Alerting;
 using WebServiceAlerter.Configuration;
@@ -115,7 +116,17 @@ internal static class Cli
 
         if (args.Contains("--test-mail"))
         {
-            return await TestMailAsync(services);
+            return await TestAsync(services.GetRequiredService<SmtpAlertSender>());
+        }
+
+        if (args.Contains("--test-discord"))
+        {
+            return await TestAsync(services.GetRequiredService<DiscordAlertSender>());
+        }
+
+        if (args.Contains("--configure-discord"))
+        {
+            return ConfigureDiscord();
         }
 
         var historyIndex = Array.IndexOf(args, "--history");
@@ -306,7 +317,7 @@ internal static class Cli
             Write("  ! ", ConsoleColor.Red);
             Console.WriteLine($"{startedAt.ToLocalTime():dd/MM HH:mm:ss}  {names.GetValueOrDefault(endpointId, endpointId)}");
             Console.WriteLine($"      {outcome.ToSpanish()}{(string.IsNullOrWhiteSpace(detail) ? "" : $" — {detail}")}");
-            Console.WriteLine($"      duró {AlertDispatcher.FormatDuration(duration)}{closing}");
+            Console.WriteLine($"      duró {AlertEvent.FormatDuration(duration)}{closing}");
         }
 
         // Individual failures matter even when they never became an incident: a blip that never
@@ -332,25 +343,102 @@ internal static class Cli
         return 0;
     }
 
-    private static async Task<int> TestMailAsync(IServiceProvider services)
+    /// <summary>
+    /// Prueba un canal puntual y no el compuesto: si se probaran todos juntos, un canal caído
+    /// quedaría tapado por el que sí anduvo.
+    /// </summary>
+    private static async Task<int> TestAsync(IAlertSender sender)
     {
-        var sender = services.GetRequiredService<IAlertSender>();
-
-        var sent = await sender.SendAsync(new AlertMessage
+        var enviado = await sender.SendAsync(new AlertEvent
         {
             Kind = AlertKind.Test,
-            Subject = "WebServiceAlerter — mail de prueba",
-            Body =
-                $"Este es un mail de prueba enviado desde {Environment.MachineName}.\r\n" +
-                $"Fecha: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}\r\n\r\n" +
-                "Si lo estás leyendo, la configuración de destinatarios funciona.\r\n",
+            At = DateTimeOffset.Now,
+            Title = "Mensaje de prueba",
+            Note = "Si estás leyendo esto, el canal está bien configurado.",
         }, CancellationToken.None);
 
-        Console.WriteLine(sent
-            ? "Mail de prueba enviado."
-            : "No se pudo enviar. Revisá el log: casi siempre es SMTP sin configurar o la lista de destinatarios vacía.");
+        Console.WriteLine(enviado
+            ? $"Prueba enviada por {sender.Channel}."
+            : $"No se pudo enviar por {sender.Channel}. El motivo está en las líneas de log de arriba.");
 
-        return sent ? 0 : 1;
+        return enviado ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Deja discord.json listo en ProgramData. Se pide interactivamente porque los dos valores son
+    /// distintos en cada instalación —la identidad siempre, y el webhook por estar cifrado contra
+    /// esta máquina— así que ninguno puede venir dentro del instalador.
+    /// </summary>
+    private static int ConfigureDiscord()
+    {
+        Console.WriteLine("Configuración del canal de Discord");
+        Console.WriteLine();
+        Console.WriteLine("La identidad es cómo se va a ver ESTE equipo en el canal compartido.");
+        Console.WriteLine("Poné localidad e ISP, nunca el nombre del cliente: el canal lo ven");
+        Console.WriteLine("varios desarrolladores y no corresponde que sepan de quién es cada servidor.");
+        Console.WriteLine("Ejemplo:  Rosario, Santa Fe — Telecom");
+        Console.WriteLine();
+
+        Console.Write("Identidad: ");
+        var identidad = (Console.ReadLine() ?? "").Trim();
+
+        if (string.IsNullOrWhiteSpace(identidad))
+        {
+            Console.WriteLine("Sin identidad no se configura nada.");
+            return 1;
+        }
+
+        Console.WriteLine();
+        Console.Write("URL del webhook (no se muestra): ");
+        var webhook = ReadHidden().Trim();
+
+        // Se valida con la misma regla que usa el sender. Con dos validaciones distintas, una
+        // dirección podía guardarse como buena y después fallar callada en cada envío.
+        if (!DiscordAlertSender.IsValidWebhook(webhook))
+        {
+            Console.WriteLine();
+            Console.WriteLine("Eso no parece un webhook de Discord.");
+            Console.WriteLine("Tiene que ser https y del dominio discord.com, con la forma");
+            Console.WriteLine("  https://discord.com/api/webhooks/<id>/<token>");
+            Console.WriteLine("Se obtiene en el canal: Editar canal → Integraciones → Webhooks.");
+            return 1;
+        }
+
+        var destino = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "WebServiceAlerter",
+            "discord.json");
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(destino)!);
+
+            var contenido =
+                "{\r\n" +
+                "  \"Discord\": {\r\n" +
+                "    \"Enabled\": true,\r\n" +
+                $"    \"Identity\": {JsonSerializer.Serialize(identidad)},\r\n" +
+                $"    \"ProtectedWebhookUrl\": \"{PasswordProtector.Protect(webhook)}\"\r\n" +
+                "  }\r\n" +
+                "}\r\n";
+
+            File.WriteAllText(destino, contenido);
+
+            Console.WriteLine();
+            Console.WriteLine($"Guardado en:  {destino}");
+            Console.WriteLine();
+            Console.WriteLine("El instalador no toca ese archivo, así que sobrevive a las actualizaciones.");
+            Console.WriteLine("La URL queda cifrada contra esta máquina: hay que configurarla en cada equipo.");
+            Console.WriteLine();
+            Console.WriteLine("Probalo con:  WebServiceAlerter.exe --test-discord");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine();
+            Console.WriteLine($"No pude escribir {destino}: {ex.Message}");
+            return 1;
+        }
     }
 
     private static void WriteLabelled(string label, string value, ConsoleColor color)
