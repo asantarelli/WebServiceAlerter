@@ -70,6 +70,7 @@ Comandos disponibles:
 | `--history [horas]` | Qué registró el monitor en ese período: disponibilidad, incidentes y fallos sueltos. Es el comando para cuando alguien reporta "no pude facturar a las diez y cuarto". |
 | `--test-mail` | Manda un mail de prueba a los destinatarios configurados. |
 | `--protect-password` | Cifra la contraseña SMTP con DPAPI y la guarda en `%ProgramData%\WebServiceAlerter\smtp.json`. Una vez por equipo. |
+| `--configure-smtp` | Carga la casilla de envío completa en `smtp.json`. Una vez por equipo, en consola elevada. |
 | `--configure-discord` | Configura el canal de Discord: identidad e URL del webhook, cifrada. Una vez por equipo. |
 | `--test-discord` | Publica un mensaje de prueba en Discord. |
 | *(sin argumentos)* | Corre el loop de monitoreo (consola, o como servicio de Windows). |

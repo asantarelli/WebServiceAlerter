@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.DependencyInjection;
 using WebServiceAlerter.Alerting;
 using WebServiceAlerter.Configuration;
@@ -29,34 +30,24 @@ internal static class Cli
             return 1;
         }
 
-        var blob = PasswordProtector.Protect(password);
-        var destino = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "WebServiceAlerter",
-            "smtp.json");
-
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(destino)!);
-            File.WriteAllText(destino,
-                "{\r\n  \"Smtp\": {\r\n    \"ProtectedPassword\": \"" + blob + "\"\r\n  }\r\n}\r\n");
+            // Sólo la contraseña: el resto de la sección se conserva. Antes se reescribía el
+            // archivo entero, así que cambiar la contraseña borraba el servidor y el usuario.
+            var destino = SaveSmtp(smtp => smtp["ProtectedPassword"] = PasswordProtector.Protect(password));
 
             Console.WriteLine();
             Console.WriteLine($"Contraseña cifrada y guardada en:  {destino}");
             Console.WriteLine();
             Console.WriteLine("Ese archivo no lo toca el instalador, así que sobrevive a las actualizaciones.");
             Console.WriteLine("El blob sólo sirve en ESTA máquina: hay que generarlo una vez por equipo.");
+            Console.WriteLine();
+            Console.WriteLine("Si además falta cargar servidor, usuario y remitente:  --configure-smtp");
             return 0;
         }
         catch (Exception ex)
         {
-            // Si no se pudo escribir (permisos, disco), al menos se muestra para pegarlo a mano.
-            Console.WriteLine();
-            Console.WriteLine($"No pude escribir {destino}: {ex.Message}");
-            Console.WriteLine();
-            Console.WriteLine("Pegá esto a mano en Smtp:ProtectedPassword:");
-            Console.WriteLine();
-            Console.WriteLine(blob);
+            ExplainWriteFailure(ex, SmtpPath);
             return 1;
         }
 
@@ -127,6 +118,11 @@ internal static class Cli
         if (args.Contains("--configure-discord"))
         {
             return ConfigureDiscord();
+        }
+
+        if (args.Contains("--configure-smtp"))
+        {
+            return ConfigureSmtp();
         }
 
         var historyIndex = Array.IndexOf(args, "--history");
@@ -365,6 +361,145 @@ internal static class Cli
     }
 
     /// <summary>
+    /// Ruta de smtp.json, el archivo por equipo con los datos de la casilla de envío.
+    /// </summary>
+    private static string SmtpPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "WebServiceAlerter",
+        "smtp.json");
+
+    /// <summary>
+    /// Modifica la sección Smtp preservando lo que ya haya. Se lee y se reescribe con JsonNode en
+    /// vez de serializar un objeto entero para que cambiar un dato no borre los otros.
+    /// </summary>
+    private static string SaveSmtp(Action<JsonObject> modificar)
+    {
+        JsonObject raiz;
+
+        try
+        {
+            raiz = File.Exists(SmtpPath) && JsonNode.Parse(File.ReadAllText(SmtpPath)) is JsonObject existente
+                ? existente
+                : new JsonObject();
+        }
+        catch (Exception ex) when (ex is IOException or JsonException)
+        {
+            raiz = new JsonObject();
+        }
+
+        if (raiz["Smtp"] is not JsonObject smtp)
+        {
+            smtp = new JsonObject();
+            raiz["Smtp"] = smtp;
+        }
+
+        modificar(smtp);
+
+        Directory.CreateDirectory(Path.GetDirectoryName(SmtpPath)!);
+        File.WriteAllText(SmtpPath, raiz.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+
+        return SmtpPath;
+    }
+
+    /// <summary>
+    /// Configura la casilla de envío completa en smtp.json.
+    ///
+    /// Existe porque el instalador se publica abierto y por lo tanto no puede llevar los datos de
+    /// la casilla adentro: el appsettings.json que instala tiene la sección vacía. Sin este paso,
+    /// una instalación queda muda —no puede enviar nada— y el fallo recién aparece cuando hace
+    /// falta avisar de una caída, que es el peor momento para descubrirlo.
+    /// </summary>
+    private static int ConfigureSmtp()
+    {
+        Console.WriteLine("Configuración de la casilla desde la que se envían las alertas.");
+        Console.WriteLine("Esto se carga una vez por equipo y sobrevive a las actualizaciones.");
+        Console.WriteLine();
+
+        var host = Ask("Servidor SMTP", "");
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            Console.WriteLine("Sin servidor no se configura nada.");
+            return 1;
+        }
+
+        var puertoTexto = Ask("Puerto", "587");
+        if (!int.TryParse(puertoTexto, out var puerto) || puerto is < 1 or > 65535)
+        {
+            Console.WriteLine("Ese puerto no es válido.");
+            return 1;
+        }
+
+        var ssl = Ask("¿Usa SSL/TLS? (s/n)", "s").StartsWith("s", StringComparison.OrdinalIgnoreCase);
+        var usuario = Ask("Usuario", "");
+        var remitente = Ask("Dirección remitente", usuario);
+        var nombre = Ask("Nombre visible del remitente", "WebServiceAlerter");
+
+        Console.Write("Contraseña (no se muestra): ");
+        var password = ReadHidden();
+
+        try
+        {
+            var destino = SaveSmtp(smtp =>
+            {
+                smtp["Host"] = host;
+                smtp["Port"] = puerto;
+                smtp["UseSsl"] = ssl;
+                smtp["Username"] = usuario;
+                smtp["FromAddress"] = remitente;
+                smtp["FromDisplayName"] = nombre;
+
+                // Una contraseña vacía deja la que ya estuviera guardada: sirve para corregir el
+                // servidor sin tener que volver a tipearla.
+                if (!string.IsNullOrEmpty(password))
+                {
+                    smtp["ProtectedPassword"] = PasswordProtector.Protect(password);
+                }
+            });
+
+            Console.WriteLine();
+            Console.WriteLine($"Guardado en:  {destino}");
+            Console.WriteLine();
+            Console.WriteLine("Probalo con:  WebServiceAlerter.exe --test-mail");
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            ExplainWriteFailure(ex, SmtpPath);
+            return 1;
+        }
+    }
+
+    /// <summary>
+    /// Los archivos de ProgramData los crea el servicio, que corre como LocalSystem, así que un
+    /// usuario común sólo puede leerlos. Decirlo con todas las letras evita que quien configura
+    /// una instalación se quede mirando un "acceso denegado" sin saber qué le falta.
+    /// </summary>
+    private static void ExplainWriteFailure(Exception ex, string destino)
+    {
+        Console.WriteLine();
+
+        if (ex is UnauthorizedAccessException)
+        {
+            Console.WriteLine($"No tengo permiso para escribir {destino}.");
+            Console.WriteLine();
+            Console.WriteLine("Ese archivo pertenece al servicio, así que hace falta una consola");
+            Console.WriteLine("de administrador. Abrí PowerShell o CMD con «Ejecutar como");
+            Console.WriteLine("administrador» y volvé a correr este comando.");
+        }
+        else
+        {
+            Console.WriteLine($"No pude escribir {destino}: {ex.Message}");
+        }
+    }
+
+    private static string Ask(string etiqueta, string porDefecto)
+    {
+        Console.Write(string.IsNullOrEmpty(porDefecto) ? $"{etiqueta}: " : $"{etiqueta} [{porDefecto}]: ");
+        var valor = (Console.ReadLine() ?? "").Trim();
+        return string.IsNullOrEmpty(valor) ? porDefecto : valor;
+    }
+
+    /// <summary>
     /// Deja discord.json listo en ProgramData. Se pide interactivamente porque los dos valores son
     /// distintos en cada instalación —la identidad siempre, y el webhook por estar cifrado contra
     /// esta máquina— así que ninguno puede venir dentro del instalador.
@@ -435,8 +570,7 @@ internal static class Cli
         }
         catch (Exception ex)
         {
-            Console.WriteLine();
-            Console.WriteLine($"No pude escribir {destino}: {ex.Message}");
+            ExplainWriteFailure(ex, destino);
             return 1;
         }
     }

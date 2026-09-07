@@ -23,6 +23,21 @@ Este proyecto usa [versionado semántico](https://semver.org/lang/es/).
   instalaciones es lo esperable justo cuando se cae un servicio que todos monitorean.
 - Comandos nuevos: `--configure-discord` y `--test-discord`.
 
+### Configuración de la casilla de envío
+
+- **`--configure-smtp`**: carga servidor, puerto, SSL, usuario, remitente y contraseña en
+  `smtp.json`, de una vez. Cierra la limitación de la 0.2.1: el instalador se publica abierto y por
+  eso instala la sección `Smtp` vacía, así que sin este paso **una instalación quedaba muda** —no
+  podía enviar nada— y el fallo recién aparecía cuando hacía falta avisar de una caída.
+- `--protect-password` ya no reescribe el archivo entero: sólo cambia la contraseña. Antes,
+  cambiarla borraba el servidor y el usuario.
+- Dejar la contraseña vacía en `--configure-smtp` conserva la guardada, para poder corregir el
+  servidor sin volver a tipearla.
+- El servicio relee la configuración de la casilla **en caliente**. Antes se leía una sola vez al
+  arrancar: quien acababa de configurarla probaba en ese mismo momento y la veía fallar.
+- Cuando falta permiso para escribir en ProgramData, se explica que hace falta una consola de
+  administrador en vez de mostrar un "acceso denegado" pelado.
+
 ### Interno
 
 - Los avisos pasan a viajar como evento estructurado (`AlertEvent`) en vez de texto ya armado, y

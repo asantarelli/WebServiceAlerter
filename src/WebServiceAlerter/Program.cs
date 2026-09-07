@@ -108,7 +108,7 @@ if (interactive)
 // One-shot commands need the container but not the hosted service.
 var oneShot = args.Any(a =>
     a is "--once" or "--list" or "--test" or "--test-mail" or "--history"
-      or "--test-discord" or "--configure-discord");
+      or "--test-discord" or "--configure-discord" or "--configure-smtp");
 if (!oneShot)
 {
     builder.Services.AddHostedService<Worker>();

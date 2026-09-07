@@ -16,10 +16,19 @@ namespace WebServiceAlerter.Alerting;
 /// </summary>
 public sealed class SmtpAlertSender : IAlertSender
 {
-    private readonly SmtpOptions _smtp;
+    /// <summary>
+    /// Monitor y no snapshot: los datos de la casilla se cargan con --configure-smtp DESPUÉS de
+    /// instalar, porque el instalador se publica abierto y no puede llevarlos adentro. Si se
+    /// leyeran una sola vez al arrancar, configurarlos no tendría efecto hasta reiniciar el
+    /// servicio, y quien acaba de configurarlo probaría en ese mismo momento y lo vería fallar.
+    /// </summary>
+    private readonly IOptionsMonitor<SmtpOptions> _smtpOptions;
+
     private readonly IOptionsMonitor<GeneralOptions> _general;
     private readonly IOptionsMonitor<AlertingOptions> _alerting;
     private readonly ILogger<SmtpAlertSender> _logger;
+
+    private SmtpOptions Smtp => _smtpOptions.CurrentValue;
 
     /// <summary>Marcas de tiempo de los últimos envíos, para el tope por hora. Un bug o un
     /// endpoint inestable no pueden quemar la casilla compartida y hacer que el proveedor la
@@ -28,12 +37,12 @@ public sealed class SmtpAlertSender : IAlertSender
     private readonly object _gate = new();
 
     public SmtpAlertSender(
-        IOptions<SmtpOptions> smtp,
+        IOptionsMonitor<SmtpOptions> smtp,
         IOptionsMonitor<GeneralOptions> general,
         IOptionsMonitor<AlertingOptions> alerting,
         ILogger<SmtpAlertSender> logger)
     {
-        _smtp = smtp.Value;
+        _smtpOptions = smtp;
         _general = general;
         _alerting = alerting;
         _logger = logger;
@@ -45,7 +54,7 @@ public sealed class SmtpAlertSender : IAlertSender
     {
         var recipients = _alerting.CurrentValue.ParsedRecipients();
 
-        if (!_smtp.IsConfigured)
+        if (!Smtp.IsConfigured)
         {
             _logger.LogWarning("SMTP no configurado: «{Headline}» no se envió por mail.", alert.Headline);
             return false;
@@ -71,23 +80,23 @@ public sealed class SmtpAlertSender : IAlertSender
         var (subject, body) = Render(alert);
         var password = ResolvePassword();
 
-        for (var attempt = 1; attempt <= Math.Max(1, _smtp.RetryCount); attempt++)
+        for (var attempt = 1; attempt <= Math.Max(1, Smtp.RetryCount); attempt++)
         {
             try
             {
-                using var client = new SmtpClient(_smtp.Host, _smtp.Port)
+                using var client = new SmtpClient(Smtp.Host, Smtp.Port)
                 {
-                    EnableSsl = _smtp.UseSsl,
-                    Timeout = _smtp.TimeoutMilliseconds,
+                    EnableSsl = Smtp.UseSsl,
+                    Timeout = Smtp.TimeoutMilliseconds,
                     DeliveryMethod = SmtpDeliveryMethod.Network,
-                    Credentials = string.IsNullOrEmpty(_smtp.Username)
+                    Credentials = string.IsNullOrEmpty(Smtp.Username)
                         ? null
-                        : new NetworkCredential(_smtp.Username, password),
+                        : new NetworkCredential(Smtp.Username, password),
                 };
 
                 using var mail = new MailMessage
                 {
-                    From = new MailAddress(_smtp.FromAddress, _smtp.FromDisplayName),
+                    From = new MailAddress(Smtp.FromAddress, Smtp.FromDisplayName),
                     Subject = subject,
                     Body = body,
                     IsBodyHtml = false,
@@ -106,14 +115,14 @@ public sealed class SmtpAlertSender : IAlertSender
             {
                 _logger.LogWarning(ex, "Intento {Attempt} de envío falló.", attempt);
 
-                if (attempt < _smtp.RetryCount)
+                if (attempt < Smtp.RetryCount)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(_smtp.RetryBackoffSeconds), cancellationToken);
+                    await Task.Delay(TimeSpan.FromSeconds(Smtp.RetryBackoffSeconds), cancellationToken);
                 }
             }
         }
 
-        _logger.LogError("No se pudo enviar «{Subject}» tras {Count} intentos.", subject, _smtp.RetryCount);
+        _logger.LogError("No se pudo enviar «{Subject}» tras {Count} intentos.", subject, Smtp.RetryCount);
         return false;
     }
 
@@ -183,9 +192,9 @@ public sealed class SmtpAlertSender : IAlertSender
 
     private string ResolvePassword()
     {
-        if (!string.IsNullOrEmpty(_smtp.ProtectedPassword))
+        if (!string.IsNullOrEmpty(Smtp.ProtectedPassword))
         {
-            var unprotected = PasswordProtector.TryUnprotect(_smtp.ProtectedPassword);
+            var unprotected = PasswordProtector.TryUnprotect(Smtp.ProtectedPassword);
             if (unprotected is not null)
             {
                 return unprotected;
@@ -197,7 +206,7 @@ public sealed class SmtpAlertSender : IAlertSender
                 "--protect-password.");
         }
 
-        return _smtp.Password;
+        return Smtp.Password;
     }
 
     private bool TryReserveQuota()
