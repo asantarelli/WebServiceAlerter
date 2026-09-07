@@ -25,8 +25,8 @@ WebServiceAlerter se instala en el equipo del cliente, chequea los servicios cad
 muestra un semáforo. El usuario mira la pantalla y sabe de qué lado está el problema, sin llamar a
 nadie. Si el servicio se cae, avisa por mail; cuando se recupera, también.
 
-> **Estado: prototipo (v0.1).** El servicio de monitoreo funciona y es usable desde consola.
-> Falta el Viewer (semáforo, gráfico, bandeja) y el instalador. Ver [ESPECIFICACION.md](ESPECIFICACION.md).
+> **Estado: v0.3.0.** Servicio, Viewer e instalador MSI andando y probados contra ARCA en
+> producción. Ver [CHANGELOG.md](CHANGELOG.md) y [ESPECIFICACION.md](ESPECIFICACION.md).
 
 ## Lo que lo diferencia de un ping
 
@@ -55,10 +55,14 @@ de lugar.
 Necesitás el [SDK de .NET 10](https://dotnet.microsoft.com/download).
 
 ```bash
-git clone https://github.com/<usuario>/WebServiceAlerter.git
+git clone https://github.com/asantarelli/WebServiceAlerter.git
 cd WebServiceAlerter/src/WebServiceAlerter
 dotnet run -- --once
 ```
+
+> Para **instalarlo** en un equipo no hace falta compilar nada: bajá el MSI de la
+> [última versión](https://github.com/asantarelli/WebServiceAlerter/releases/latest) y seguí la
+> [instalación paso a paso](#instalación-paso-a-paso).
 
 Comandos disponibles:
 
@@ -75,30 +79,120 @@ Comandos disponibles:
 | `--test-discord` | Publica un mensaje de prueba en Discord. |
 | *(sin argumentos)* | Corre el loop de monitoreo (consola, o como servicio de Windows). |
 
-## Instalar
+## Instalación paso a paso
+
+Todo esto se hace **una sola vez por equipo**. Lleva unos minutos.
+
+### 1. Instalar
+
+Bajá el MSI de la [última versión](https://github.com/asantarelli/WebServiceAlerter/releases/latest)
+y ejecutalo, o desde consola:
 
 ```bash
-.\installer\build-installer.ps1
+msiexec /i WebServiceAlerter-0.3.0-win-x64.msi
 ```
 
-Genera un MSI con el servicio, el Viewer y los accesos directos. Necesita `dotnet tool restore`
-una vez (WiX viene fijado como herramienta local del repo).
+Instala el servicio (arranque automático), el Viewer y los accesos directos en el escritorio y el
+menú de inicio. **No hace falta tener .NET instalado**: las dos aplicaciones van autocontenidas.
 
-```bash
-msiexec /i WebServiceAlerter-0.2.0-win-x64.msi
-```
+Si ya había una versión anterior, se instala encima sin desinstalar primero.
 
-Después, **una vez por equipo**, en consola elevada:
+### 2. Configurar la casilla de envío
+
+Abrí una consola **como administrador** — hace falta, porque los archivos de configuración
+pertenecen al servicio — y corré:
 
 ```bash
 "C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe" --configure-smtp
 ```
 
-**Ese paso no es opcional.** El instalador se publica abierto, así que no puede llevar los datos
-de la casilla adentro y los instala vacíos: sin cargarlos, la instalación queda muda y el fallo
-recién aparece cuando hace falta avisar de una caída. Pide servidor, puerto, usuario, remitente y
-contraseña; la contraseña se cifra con DPAPI contra esa máquina y todo se guarda fuera del
-directorio de instalación, donde las actualizaciones no lo pisan.
+Va a pedir, en este orden:
+
+| Dato | Ejemplo | Notas |
+|---|---|---|
+| Servidor SMTP | `mail.tu-dominio.com` | |
+| Puerto | `587` | Enter deja 587 |
+| ¿Usa SSL/TLS? | `s` / `n` | Depende del servidor; probá con el que use tu proveedor |
+| Usuario | `alertas@tu-dominio.com` | |
+| Dirección remitente | *(Enter usa el usuario)* | **Conviene que coincida con el usuario**: muchos servidores rechazan el envío si difieren |
+| Nombre visible | `WebServiceAlerter` | |
+| Contraseña | *(no se muestra al tipear)* | Dejarla vacía conserva la ya guardada |
+
+**Este paso no es opcional.** El instalador se publica abierto, así que no puede llevar los datos
+de la casilla adentro y los instala vacíos: sin cargarlos la instalación queda muda, y eso recién
+se nota cuando hace falta avisar de una caída.
+
+La contraseña se cifra con DPAPI contra esa máquina y se guarda en
+`%ProgramData%\WebServiceAlerter\smtp.json`, fuera del directorio de instalación, donde las
+actualizaciones no lo pisan.
+
+### 3. Cargar los destinatarios
+
+Abrí el **Viewer** (acceso directo del escritorio) y entrá en **Configuración**. Ahí van:
+
+- **Nombre de este equipo** — aparece en el asunto de cada alerta, para saber de qué instalación
+  viene.
+- **Mails de destino** — separados por coma.
+- **Sensibilidad** — cada cuántos segundos se chequea, cuántos fallos seguidos hacen falta para
+  avisar, cuántos aciertos para dar por recuperado, y cada cuánto repetir el aviso.
+
+El servicio relee todo eso **en caliente**, sin reiniciar.
+
+### 4. Probar que el mail sale
+
+Desde la misma pantalla de Configuración, botón **Enviar mail de prueba**. O por consola:
+
+```bash
+"C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe" --test-mail
+```
+
+Si no llega, el motivo aparece en pantalla. Los dos errores más comunes son una dirección de
+destino mal tipeada y que el remitente no coincida con el usuario autenticado.
+
+### 5. Discord (opcional)
+
+Sólo si querés publicar los eventos en un canal compartido entre desarrolladores. En consola
+**como administrador**:
+
+```bash
+"C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe" --configure-discord
+```
+
+Pide la **identidad** de este equipo en el canal —localidad e ISP, por ejemplo
+`Rosario, Santa Fe — Telecom`, nunca el nombre del cliente— y la **URL del webhook**, que se
+obtiene en Discord con *Editar canal → Integraciones → Webhooks*.
+
+Para comprobarlo:
+
+```bash
+"C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe" --test-discord
+```
+
+### 6. Verificar que quedó midiendo
+
+```bash
+"C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe" --history 1
+```
+
+Tiene que mostrar chequeos registrados. También podés mirar el semáforo en el Viewer, o el ícono
+de la bandeja, que queda verde cuando todo responde.
+
+### Desinstalar
+
+Desde *Aplicaciones instaladas* de Windows, o `msiexec /x`. **No borra** la base de datos ni la
+configuración de `%ProgramData%\WebServiceAlerter`: dar de baja el programa no es lo mismo que
+querer perder el historial. Para eliminarlos, borrá esa carpeta a mano.
+
+## Compilar el instalador
+
+Sólo hace falta si trabajás sobre el código.
+
+```bash
+.\installer\build-installer.ps1
+```
+
+Publica las dos aplicaciones y arma el MSI. La primera vez, `dotnet tool restore` para bajar WiX,
+que viene fijado como herramienta local del repo.
 
 > Se usa **WiX 5** y no 7 a propósito: la 7 exige adherir al *Open Source Maintenance Fee*, que
 > para uso comercial implica pagar. La 5 es libre y entiende el mismo esquema.
