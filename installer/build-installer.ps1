@@ -106,4 +106,7 @@ Write-Host "Silenciosa:     msiexec /i `"$msi`" /qn" -ForegroundColor Gray
 Write-Host "Desinstalar:    msiexec /x `"$msi`"" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Después de instalar, una vez por equipo, en consola elevada:" -ForegroundColor Yellow
-Write-Host "  `"C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe`" --protect-password" -ForegroundColor Yellow
+Write-Host "  `"C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe`" --configure-smtp" -ForegroundColor Yellow
+Write-Host "" -ForegroundColor Yellow
+Write-Host "Sin ese paso la instalación queda muda: el instalador se publica abierto y por eso" -ForegroundColor Yellow
+Write-Host "no lleva los datos de la casilla adentro." -ForegroundColor Yellow
