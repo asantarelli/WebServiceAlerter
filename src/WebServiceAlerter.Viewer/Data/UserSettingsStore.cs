@@ -8,6 +8,12 @@ public sealed record UserSettings
 {
     public string SiteName { get; init; } = "";
     public string Recipients { get; init; } = "";
+
+    /// <summary>En el servidor van encendidos; en las terminales, apagados: miran pero no avisan.</summary>
+    public bool MailEnabled { get; init; } = true;
+
+    public bool DiscordEnabled { get; init; }
+
     public int IntervalSeconds { get; init; } = 30;
     public int FailuresToAlert { get; init; } = 2;
     public int SuccessesToRecover { get; init; } = 2;
@@ -31,14 +37,29 @@ public sealed class UserSettingsStore
 
     public string Path => _path;
 
+    /// <summary>
+    /// Si este equipo tiene Discord configurado. La casilla de la pantalla enciende y apaga el
+    /// canal, pero la identidad y el webhook se cargan con --configure-discord: sin eso, marcarla
+    /// no haría nada y el usuario no tendría forma de saberlo.
+    /// </summary>
+    public bool DiscordConfigured =>
+        File.Exists(System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_path) ?? "", "discord.json"));
+
     public UserSettings Read()
     {
         var root = LoadRoot();
+        var discordConfigured = DiscordConfigured;
 
         return new UserSettings
         {
             SiteName = GetString(root, "General", "SiteName") ?? "",
             Recipients = GetString(root, "Alerting", "Recipients") ?? "",
+            MailEnabled = GetBool(root, "Alerting", "MailEnabled") ?? true,
+
+            // Sin dato en usersettings.json se toma lo que haya configurado --configure-discord,
+            // que escribe Enabled=true en discord.json.
+            DiscordEnabled = GetBool(root, "Discord", "Enabled") ?? discordConfigured,
+
             IntervalSeconds = GetInt(root, "Monitoring", "DefaultIntervalSeconds") ?? 30,
             FailuresToAlert = GetInt(root, "Monitoring", "FailuresToAlert") ?? 2,
             SuccessesToRecover = GetInt(root, "Monitoring", "SuccessesToRecover") ?? 2,
@@ -52,6 +73,12 @@ public sealed class UserSettingsStore
 
         Set(root, "General", "SiteName", JsonValue.Create(settings.SiteName));
         Set(root, "Alerting", "Recipients", JsonValue.Create(settings.Recipients));
+        Set(root, "Alerting", "MailEnabled", JsonValue.Create(settings.MailEnabled));
+
+        // usersettings.json se carga después de discord.json, así que esta clave manda sobre lo
+        // que dejó --configure-discord. Apagar el canal desde la pantalla no borra la identidad
+        // ni el webhook: quedan guardados para cuando se vuelva a encender.
+        Set(root, "Discord", "Enabled", JsonValue.Create(settings.DiscordEnabled));
         Set(root, "Monitoring", "DefaultIntervalSeconds", JsonValue.Create(settings.IntervalSeconds));
         Set(root, "Monitoring", "FailuresToAlert", JsonValue.Create(settings.FailuresToAlert));
         Set(root, "Monitoring", "SuccessesToRecover", JsonValue.Create(settings.SuccessesToRecover));
@@ -109,6 +136,9 @@ public sealed class UserSettingsStore
 
     private static string? GetString(JsonObject root, string section, string key) =>
         root[section] is JsonObject s && s[key] is JsonValue v && v.TryGetValue<string>(out var result) ? result : null;
+
+    private static bool? GetBool(JsonObject root, string section, string key) =>
+        root[section] is JsonObject s && s[key] is JsonValue v && v.TryGetValue<bool>(out var result) ? result : null;
 
     private static int? GetInt(JsonObject root, string section, string key) =>
         root[section] is JsonObject s && s[key] is JsonValue v && v.TryGetValue<int>(out var result) ? result : null;

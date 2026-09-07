@@ -18,6 +18,8 @@ public sealed class SettingsForm : Form
     private readonly Panel _content;
     private readonly TextBox _siteName;
     private readonly TextBox _recipients;
+    private readonly CheckBox _mailEnabled;
+    private readonly CheckBox _discordEnabled;
     private readonly NumericUpDown _interval;
     private readonly NumericUpDown _failures;
     private readonly NumericUpDown _successes;
@@ -32,7 +34,7 @@ public sealed class SettingsForm : Form
         _store = store;
 
         Text = "Configuración";
-        ClientSize = new Size(620, 560);
+        ClientSize = new Size(620, 650);
         MinimumSize = new Size(560, 420);
         FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = false;
@@ -108,6 +110,21 @@ public sealed class SettingsForm : Form
 
         _y += 12;
         AddSectionTitle("Avisos");
+
+        AddLabel("Qué avisos manda ESTE equipo",
+                 "En el servidor van encendidos. En las terminales, apagados: ven el semáforo y el " +
+                 "gráfico, pero no avisan — así una misma caída no dispara un aviso por máquina.");
+
+        _mailEnabled = AddCheckBox("Enviar alertas por mail");
+        _discordEnabled = AddCheckBox("Publicar en el canal de Discord");
+
+        if (!store.DiscordConfigured)
+        {
+            _discordEnabled.Enabled = false;
+            _discordEnabled.Text = "Publicar en el canal de Discord  (no configurado en este equipo)";
+        }
+
+        _y += 6;
         AddLabel("Mails de destino", "Separados por coma. La dirección desde la que se envía se configura aparte.");
         _recipients = AddTextBox();
 
@@ -151,6 +168,8 @@ public sealed class SettingsForm : Form
 
         _siteName.Text = settings.SiteName;
         _recipients.Text = settings.Recipients;
+        _mailEnabled.Checked = settings.MailEnabled;
+        _discordEnabled.Checked = settings.DiscordEnabled && _discordEnabled.Enabled;
         _interval.Value = Math.Clamp(settings.IntervalSeconds, 5, 3600);
         _failures.Value = Math.Clamp(settings.FailuresToAlert, 1, 10);
         _successes.Value = Math.Clamp(settings.SuccessesToRecover, 1, 10);
@@ -181,6 +200,8 @@ public sealed class SettingsForm : Form
             {
                 SiteName = _siteName.Text.Trim(),
                 Recipients = _recipients.Text.Trim(),
+                MailEnabled = _mailEnabled.Checked,
+                DiscordEnabled = _discordEnabled.Checked,
                 IntervalSeconds = (int)_interval.Value,
                 FailuresToAlert = (int)_failures.Value,
                 SuccessesToRecover = (int)_successes.Value,
@@ -215,6 +236,14 @@ public sealed class SettingsForm : Form
         }
 
         DialogResult = DialogResult.None;
+
+        // Sin esto el envío fallaría en silencio y el usuario no tendría cómo saber que la causa
+        // es la casilla de arriba, que él mismo acaba de destildar.
+        if (!_mailEnabled.Checked)
+        {
+            ShowFeedback("El envío por mail está desactivado en este equipo. Marcá la casilla de arriba.", error: true);
+            return;
+        }
 
         var exe = FindServiceExecutable();
 
@@ -361,6 +390,14 @@ public sealed class SettingsForm : Form
         _content.Controls.Add(box);
         _y += 34;
         return box;
+    }
+
+    private CheckBox AddCheckBox(string text)
+    {
+        var control = new CheckBox { Text = text, Left = 4, Top = _y, Width = 555, Height = 22 };
+        _content.Controls.Add(control);
+        _y += 26;
+        return control;
     }
 
     private NumericUpDown AddNumeric(int min, int max)

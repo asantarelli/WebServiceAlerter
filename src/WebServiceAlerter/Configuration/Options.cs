@@ -117,6 +117,13 @@ public sealed class AlertingOptions
     /// client owns.</summary>
     public string Recipients { get; set; } = "";
 
+    /// <summary>
+    /// Permite instalar el programa en varias máquinas de un mismo cliente donde sólo una avisa.
+    /// En el servidor queda encendido; en las terminales, apagado, para que puedan ver el semáforo
+    /// y el gráfico sin que cada una mande su propio mail por la misma caída.
+    /// </summary>
+    public bool MailEnabled { get; set; } = true;
+
     public bool GroupByIncident { get; set; } = true;
 
     /// <summary>Nothing is alerted while the canary says there is no internet. A local outage is

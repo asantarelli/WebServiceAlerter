@@ -55,6 +55,9 @@ public sealed class DiscordAlertSender : IAlertSender
 
         if (!options.Enabled)
         {
+            _logger.LogInformation(
+                "La publicación en Discord está desactivada en este equipo: «{Headline}» no se publicó.",
+                alert.Headline);
             return false;
         }
 

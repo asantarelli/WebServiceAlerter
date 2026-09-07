@@ -132,6 +132,7 @@ Abrí el **Viewer** (acceso directo del escritorio) y entrá en **Configuración
 
 - **Nombre de este equipo** — aparece en el asunto de cada alerta, para saber de qué instalación
   viene.
+- **Qué avisos manda este equipo** — dos casillas, para mail y para Discord.
 - **Mails de destino** — separados por coma.
 - **Sensibilidad** — cada cuántos segundos se chequea, cuántos fallos seguidos hacen falta para
   avisar, cuántos aciertos para dar por recuperado, y cada cuánto repetir el aviso.
@@ -238,6 +239,27 @@ Los endpoints son un diccionario y no una lista, a propósito: `IConfiguration` 
 ```
 
 Los archivos de configuración admiten comentarios `//`.
+
+## Servidor y terminales
+
+El mismo programa se puede instalar de dos maneras en un cliente:
+
+| | Servidor | Terminales |
+|---|---|---|
+| Envío de mail | **encendido** | apagado |
+| Discord | **encendido** | apagado |
+| Intervalo de chequeo | 30 s | 60–120 s |
+
+Las terminales ven el semáforo, el gráfico y el historial igual que el servidor, pero no avisan.
+Sin eso, una misma caída dispararía un aviso por cada máquina donde esté instalado.
+
+Los dos interruptores están en la pantalla de configuración del Viewer y se aplican **sólo a ese
+equipo**.
+
+> **Por qué subirles el intervalo:** cada instalación monitorea por su cuenta, así que ocho
+> terminales consultan ocho veces los mismos servicios desde la misma conexión del cliente. No
+> rompe nada, pero es innecesario: quien tiene que detectar la caída rápido es el servidor, que es
+> el que avisa.
 
 ## Discord: vista común entre desarrolladores
 

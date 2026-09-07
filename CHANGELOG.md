@@ -2,6 +2,27 @@
 
 Este proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
+## [0.3.1] — 2026-09-07
+
+- **Dos casillas en la pantalla de configuración** para encender o apagar, por equipo, el envío de
+  mail y la publicación en Discord.
+
+  Permite instalar el mismo programa de dos maneras en un cliente: en el **servidor**, con los
+  avisos encendidos; y en las **terminales**, apagados, para que puedan ver el semáforo y el
+  gráfico sin que una misma caída dispare un aviso por máquina.
+
+- La casilla de Discord aparece deshabilitada y así rotulada si el equipo no tiene el canal
+  configurado, en vez de dejar marcar algo que no haría nada.
+- Apagar Discord desde la pantalla no borra la identidad ni el webhook: quedan guardados para
+  cuando se vuelva a encender.
+- Probar el envío con la casilla destildada avisa que el canal está apagado, en lugar de fallar
+  sin causa visible.
+
+> **Nota para instalar en terminales:** cada instalación monitorea por su cuenta, así que N
+> terminales generan N veces las consultas a los servicios monitoreados desde la misma conexión.
+> Conviene subirles el intervalo de chequeo desde la pantalla —60 o 120 segundos— y dejar el
+> intervalo corto sólo en el servidor, que es el que avisa.
+
 ## [0.3.0] — 2026-08-14
 
 ### Discord

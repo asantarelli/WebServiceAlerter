@@ -52,7 +52,19 @@ public sealed class SmtpAlertSender : IAlertSender
 
     public async Task<bool> SendAsync(AlertEvent alert, CancellationToken cancellationToken)
     {
-        var recipients = _alerting.CurrentValue.ParsedRecipients();
+        var alerting = _alerting.CurrentValue;
+
+        if (!alerting.MailEnabled)
+        {
+            // Silencio deliberado y no un problema: es una terminal instalada sólo para mirar.
+            // Se informa igual, porque si no quien prueba el envío ve un fallo sin causa visible.
+            _logger.LogInformation(
+                "El envío por mail está desactivado en este equipo: «{Headline}» no se envió.",
+                alert.Headline);
+            return false;
+        }
+
+        var recipients = alerting.ParsedRecipients();
 
         if (!Smtp.IsConfigured)
         {
