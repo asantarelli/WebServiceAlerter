@@ -7,7 +7,7 @@
     <RootNamespace>WebServiceAlerter</RootNamespace>
     <AssemblyName>WebServiceAlerter</AssemblyName>
     <ApplicationIcon>..\..\assets\icon.ico</ApplicationIcon>
-    <Version>0.3.0</Version>
+    <Version>0.3.1</Version>
     <Product>WebServiceAlerter</Product>
     <Company>SDigitales</Company>
     <InvariantGlobalization>false</InvariantGlobalization>

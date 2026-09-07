@@ -10,7 +10,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <PlatformTarget>x64</PlatformTarget>
     <ApplicationIcon>..\..\assets\icon.ico</ApplicationIcon>
-    <Version>0.3.0</Version>
+    <Version>0.3.1</Version>
     <Product>WebServiceAlerter Viewer</Product>
     <Company>SDigitales</Company>
 

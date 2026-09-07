@@ -4,6 +4,23 @@ Este proyecto usa [versionado semántico](https://semver.org/lang/es/).
 
 ## [0.3.1] — 2026-09-07
 
+### Gráfico
+
+- **Desplegable de período**, que abre en **las últimas 2 horas** y ofrece 6 h, 24 h y 7 días. Un
+  día entero perdía de vista el comportamiento inmediato —lo que se mira cuando algo está fallando
+  ahora—: a un chequeo cada 30 segundos son casi 3000 puntos y la última media hora queda
+  comprimida contra el borde derecho.
+- Se desactivan el zoom y el arrastre con el mouse. Venían activos por defecto, pero el refresco
+  automático devolvía la vista al principio unos segundos después de moverla, así que daban lo
+  peor de los dos mundos. El período se elige en un solo lugar.
+- La lista de incidentes acompaña al período elegido: mirar dos horas de latencia junto a una
+  lista de incidentes de todo el día invita a atribuirle al gráfico un incidente ocurrido fuera
+  de él.
+- Como el recorte del eje Y se calcula sobre lo cargado, achicar la ventana además mejora la
+  escala: un pico de hace veinte horas ya no aplasta la vista actual.
+
+### Avisos por equipo
+
 - **Dos casillas en la pantalla de configuración** para encender o apagar, por equipo, el envío de
   mail y la publicación en Discord.
 
