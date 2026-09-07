@@ -14,7 +14,20 @@ public sealed class MainForm : Form
 {
     private static readonly TimeSpan StatusRefresh = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ChartRefresh = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan ChartWindow = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// Períodos ofrecidos, con dos horas como valor inicial: a un chequeo cada 30 segundos son
+    /// unos 240 puntos, contra casi 3000 de un día entero. En 24 horas el comportamiento
+    /// inmediato —que es lo que se mira cuando algo está fallando ahora— queda comprimido en el
+    /// borde derecho y no se distingue.
+    /// </summary>
+    private static readonly (string Etiqueta, TimeSpan Ventana)[] Periodos =
+    [
+        ("Últimas 2 horas", TimeSpan.FromHours(2)),
+        ("Últimas 6 horas", TimeSpan.FromHours(6)),
+        ("Últimas 24 horas", TimeSpan.FromHours(24)),
+        ("Últimos 7 días", TimeSpan.FromDays(7)),
+    ];
 
     private readonly StatusReader _status;
     private readonly HistoryReader _history;
@@ -28,7 +41,12 @@ public sealed class MainForm : Form
 
     private readonly FormsPlot _plot;
     private readonly Label _chartLegend;
+    private readonly ComboBox _periodo;
+    private readonly Label _incidentsTitle;
     private readonly ListView _incidents;
+
+    /// <summary>Ventana elegida en el desplegable.</summary>
+    private TimeSpan ChartWindow => Periodos[Math.Clamp(_periodo.SelectedIndex, 0, Periodos.Length - 1)].Ventana;
     private readonly NotifyIcon _tray;
     private readonly System.Windows.Forms.Timer _statusTimer;
     private readonly System.Windows.Forms.Timer _chartTimer;
@@ -102,11 +120,11 @@ public sealed class MainForm : Form
         // ---- Incidentes --------------------------------------------------------------------
         var incidentsPanel = new Panel { Dock = DockStyle.Bottom, Height = 172, Padding = new Padding(12, 8, 12, 12) };
 
-        var incidentsTitle = new Label
+        _incidentsTitle = new Label
         {
             Dock = DockStyle.Top,
             Height = 22,
-            Text = "Incidentes de las últimas 24 horas",
+            Text = "Incidentes",
             Font = new Font(Font.FontFamily, 9f, FontStyle.Bold),
             ForeColor = Color.FromArgb(55, 65, 81),
         };
@@ -127,19 +145,47 @@ public sealed class MainForm : Form
         _incidents.Columns.Add("Motivo", 420);
 
         incidentsPanel.Controls.Add(_incidents);
-        incidentsPanel.Controls.Add(incidentsTitle);
+        incidentsPanel.Controls.Add(_incidentsTitle);
 
         // ---- Gráfico -----------------------------------------------------------------------
         var chartPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 8, 12, 4) };
 
+        // Título y desplegable comparten la franja superior del panel del gráfico.
+        var chartHeader = new Panel { Dock = DockStyle.Top, Height = 28 };
+
         var chartTitle = new Label
         {
-            Dock = DockStyle.Top,
-            Height = 22,
+            Left = 0,
+            Top = 4,
+            AutoSize = true,
             Text = "Latencia",
             Font = new Font(Font.FontFamily, 9f, FontStyle.Bold),
             ForeColor = Color.FromArgb(55, 65, 81),
         };
+
+        _periodo = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = 160,
+            Top = 0,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+        };
+
+        foreach (var (etiqueta, _) in Periodos)
+        {
+            _periodo.Items.Add(etiqueta);
+        }
+
+        _periodo.SelectedIndex = 0;
+        _periodo.SelectedIndexChanged += (_, _) =>
+        {
+            RefreshChart();
+            RefreshIncidents();
+        };
+
+        chartHeader.Controls.Add(chartTitle);
+        chartHeader.Controls.Add(_periodo);
+        chartHeader.Resize += (_, _) => _periodo.Left = chartHeader.Width - _periodo.Width;
 
         // Leyenda como texto y no como leyenda del gráfico: son marcas verticales, no series, y
         // explicarlas en una línea evita robarle espacio al gráfico.
@@ -153,9 +199,15 @@ public sealed class MainForm : Form
         };
 
         _plot = new FormsPlot { Dock = DockStyle.Fill };
+
+        // Sin zoom ni arrastre con el mouse: el período se elige en el desplegable. Dejarlos
+        // activos daba lo peor de los dos mundos, porque el refresco automático devolvía la vista
+        // al principio unos segundos después de moverla.
+        _plot.UserInputProcessor.Disable();
+
         chartPanel.Controls.Add(_plot);
         chartPanel.Controls.Add(_chartLegend);
-        chartPanel.Controls.Add(chartTitle);
+        chartPanel.Controls.Add(chartHeader);
 
         Controls.Add(chartPanel);
         Controls.Add(incidentsPanel);
@@ -565,10 +617,16 @@ public sealed class MainForm : Form
 
     private void RefreshIncidents()
     {
+        // La lista acompaña al período elegido para el gráfico: mirar dos horas de latencia junto
+        // a una lista de incidentes de todo el día invita a atribuirle al gráfico un incidente
+        // que ocurrió fuera de él.
+        var ventana = ChartWindow;
+        _incidentsTitle.Text = $"Incidentes — {Periodos.First(p => p.Ventana == ventana).Etiqueta.ToLowerInvariant()}";
+
         _incidents.BeginUpdate();
         _incidents.Items.Clear();
 
-        foreach (var incident in _history.GetIncidents(TimeSpan.FromHours(24)))
+        foreach (var incident in _history.GetIncidents(ventana))
         {
             var item = new ListViewItem(incident.StartedAt.ToString("dd/MM HH:mm:ss"));
             item.SubItems.Add(_names.GetValueOrDefault(incident.EndpointId, incident.EndpointId));
@@ -581,7 +639,7 @@ public sealed class MainForm : Form
         if (_incidents.Items.Count == 0)
         {
             var item = new ListViewItem("—");
-            item.SubItems.Add("Sin incidentes en las últimas 24 horas");
+            item.SubItems.Add("Sin incidentes en el período elegido");
             item.ForeColor = Color.FromArgb(107, 114, 128);
             _incidents.Items.Add(item);
         }
