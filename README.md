@@ -91,12 +91,14 @@ msiexec /i WebServiceAlerter-0.2.0-win-x64.msi
 Después, **una vez por equipo**, en consola elevada:
 
 ```bash
-"C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe" --protect-password
+"C:\Program Files\WebServiceAlerter\WebServiceAlerter.exe" --configure-smtp
 ```
 
-La contraseña de la casilla de envío no viaja en el instalador por diseño: el blob DPAPI está
-atado a cada máquina, así que se genera ahí y se guarda fuera del directorio de instalación, donde
-las actualizaciones no lo pisan.
+**Ese paso no es opcional.** El instalador se publica abierto, así que no puede llevar los datos
+de la casilla adentro y los instala vacíos: sin cargarlos, la instalación queda muda y el fallo
+recién aparece cuando hace falta avisar de una caída. Pide servidor, puerto, usuario, remitente y
+contraseña; la contraseña se cifra con DPAPI contra esa máquina y todo se guarda fuera del
+directorio de instalación, donde las actualizaciones no lo pisan.
 
 > Se usa **WiX 5** y no 7 a propósito: la 7 exige adherir al *Open Source Maintenance Fee*, que
 > para uso comercial implica pagar. La 5 es libre y entiende el mismo esquema.
@@ -109,7 +111,7 @@ Cuatro archivos, separados por **dueño** y no por máquina:
 |---|---|---|---|
 | `appsettings.json` | Junto al ejecutable | Quien distribuye | **Se sobrescribe** |
 | `usersettings.json` | `%ProgramData%\WebServiceAlerter\` | El cliente, desde la pantalla | **Nunca se toca** |
-| `smtp.json` | `%ProgramData%\WebServiceAlerter\` | Se genera con `--protect-password` | **Nunca se toca** |
+| `smtp.json` | `%ProgramData%\WebServiceAlerter\` | Se genera con `--configure-smtp` | **Nunca se toca** |
 | `discord.json` | `%ProgramData%\WebServiceAlerter\` | Se genera con `--configure-discord` | **Nunca se toca** |
 
 Ese reparto es lo que hace que actualizar sea seguro: los valores por defecto y los perfiles se
